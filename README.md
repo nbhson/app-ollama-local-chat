@@ -62,13 +62,24 @@ DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 ## Model hỗ trợ
 
 ### Model hiện tại: `gemma4:12b-mlx`
-- **Capabilities**: `completion`, `tools`, `thinking`
-- **Vision (image)**: ❌ Không hỗ trợ
+- **Capabilities (API)**: `completion`, `tools`, `thinking`
+- **Vision (image)**: ✅ **Có hỗ trợ** (đã test thực tế)
 - **Context length**: 262,144 tokens
 - **Parameter size**: 12.4B
+- **Quantization**: nvfp4
+
+> **Vì sao API không liệt kê `vision` nhưng model vẫn xử lý ảnh?**
+> Ollama UI (`ollama list`) hiển thị "Text, Image" dựa trên dữ liệu metadata của model blob,
+> trong khi `/api/show` trả về `capabilities` array chưa đầy đủ cho kiến trúc `gemma4_unified`
+> (multimodal unified). Test thực tế gửi ảnh PNG (4x4 pixel đỏ) cho thấy model nhận diện
+> đúng màu sắc kèm suy nghĩ chi tiết — **model thực sự hỗ trợ image**.
+> 
+> **⚠️ Lưu ý:** Kể cả khi API không liệt kê `vision`, bạn vẫn có thể gửi ảnh qua
+> `images: [base64_string]` trong payload của `/api/chat`. Ollama xử lý ảnh ở backend
+> trước khi đưa vào model.
 
 ### Model có vision (chat với ảnh)
-Nếu bạn muốn gửi ảnh cho model, cần pull một model vision:
+Model hiện tại **đã hỗ trợ** ảnh. Ngoài ra bạn có thể pull thêm các model vision khác:
 ```bash
 ollama pull llama3.2-vision   # 11B
 ollama pull llava             # 7B/13B
