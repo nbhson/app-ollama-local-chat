@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -385,9 +385,9 @@ body.dragover::after {
   <input type="text" id="ollamaUrl" value="http://localhost:11434" placeholder="http://localhost:11434">
   <label>Temp</label>
   <input type="number" id="temperature" value="0.7" min="0" max="2" step="0.1">
-  <button id="settingsbtn" title="Cài đặt nâng cao">⚙</button>
+  <button id="settingsbtn" title="Advanced settings">⚙</button>
   <div class="spacer"></div>
-  <span id="status">Đang kết nối...</span>
+  <span id="status">Connecting...</span>
 </div>
 
 <div id="settings">
@@ -399,7 +399,7 @@ body.dragover::after {
 </div>
 
 <div id="capbar">
-  <span class="cap-label">Khả năng:</span>
+  <span class="cap-label">Capabilities:</span>
   <span class="cap-badge" data-cap="vision">👁 Vision</span>
   <span class="cap-badge" data-cap="tools">🔧 Tools</span>
   <span class="cap-badge" data-cap="thinking">🧠 Thinking</span>
@@ -409,20 +409,20 @@ body.dragover::after {
 <div id="chat"></div>
 
 <div id="previewbar">
-  <span class="attach-hint">📎 Hình ảnh đã chọn</span>
+  <span class="attach-hint">📎 Selected images</span>
 </div>
 
 <div id="inputbar">
   <span id="prompt">user@local</span>
-  <button id="addbtn" title="Thêm tệp đính kèm / ghi âm">＋</button>
+  <button id="addbtn" title="Attach file / record audio">＋</button>
   <span id="addmenu">
-    <button id="attachbtn" title="Đính kèm ảnh (drag/drop cũng được)">📎 Ảnh</button>
-    <button id="micbtn" title="Ghi âm giọng nói">🎤 Ghi âm</button>
+    <button id="attachbtn" title="Attach image (drag & drop works too)">📎 Image</button>
+    <button id="micbtn" title="Record voice">🎤 Record</button>
   </span>
   <input type="file" id="fileInput" accept="image/*" multiple hidden>
-  <textarea id="input" rows="1" placeholder="Nhập tin nhắn... (Enter để gửi, Shift+Enter để xuống dòng)"></textarea>
-  <button id="sendbtn">Gửi</button>
-  <button id="stopbtn">Dừng</button>
+  <textarea id="input" rows="1" placeholder="Type a message... (Enter to send, Shift+Enter for new line)"></textarea>
+  <button id="sendbtn">Send</button>
+  <button id="stopbtn">Stop</button>
 </div>
 <script>
 const chatEl = document.getElementById('chat');
@@ -516,7 +516,7 @@ async function toggleRecording() {
     return;
   }
   if (!navigator.mediaDevices || !window.MediaRecorder) {
-    setStatus('Trình duyệt không hỗ trợ ghi âm', 'err');
+    setStatus('Voice recording not supported', 'err');
     return;
   }
   try {
@@ -533,15 +533,15 @@ async function toggleRecording() {
       isRecording = false;
       micBtn.classList.remove('recording');
       micBtn.textContent = '🎤';
-      micBtn.title = 'Ghi âm giọng nói';
+      micBtn.title = 'Record voice';
     };
     mediaRecorder.start();
     isRecording = true;
     micBtn.classList.add('recording');
     micBtn.textContent = '⏹';
-    micBtn.title = 'Dừng ghi âm';
+    micBtn.title = 'Stop recording';
   } catch (e) {
-    setStatus('Không truy cập được microphone', 'err');
+    setStatus('Cannot access microphone', 'err');
   }
 }
 
@@ -573,7 +573,7 @@ function renderPreview() {
     const rm = document.createElement('button');
     rm.className = 'remove';
     rm.textContent = 'x';
-    rm.title = 'Xóa ảnh';
+    rm.title = 'Remove image';
     rm.addEventListener('click', () => {
       pendingImages.splice(i, 1);
       renderPreview();
@@ -591,7 +591,7 @@ function renderPreview() {
     const rm = document.createElement('button');
     rm.className = 'remove';
     rm.textContent = 'x';
-    rm.title = 'Xóa audio';
+    rm.title = 'Remove audio';
     rm.addEventListener('click', () => {
       pendingAudio = null;
       renderPreview();
@@ -675,7 +675,7 @@ function addStreamingMessage() {
   const toggle = document.createElement('span');
   toggle.className = 'thinking-toggle';
   toggle.textContent = '− thinking';
-  toggle.title = 'Hiện/ẩn phần suy nghĩ';
+  toggle.title = 'Show/hide thinking';
   toggle.addEventListener('click', () => {
     const open = thinkingDiv.classList.toggle('open');
     toggle.textContent = open ? '− thinking' : '+ thinking';
@@ -703,7 +703,7 @@ function addStreamingMessage() {
 // --- Load models ---
 async function loadModels() {
   const url = ollamaUrlInput.value.trim() || 'http://localhost:11434';
-  setStatus('Đang tải models...', 'busy');
+  setStatus('Loading models...', 'busy');
   try {
     const resp = await fetch('/api/models?url=' + encodeURIComponent(url));
     const data = await resp.json();
@@ -718,13 +718,13 @@ async function loadModels() {
       if (data.default && data.models.includes(data.default)) {
         modelSelect.value = data.default;
       }
-      setStatus('Sẵn sàng', 'ok');
+      setStatus('Ready', 'ok');
       loadModelInfo();
     } else {
-      setStatus('Không tìm thấy model', 'err');
+      setStatus('No models found', 'err');
     }
   } catch (e) {
-    setStatus('Lỗi kết nối Ollama', 'err');
+    setStatus('Failed to connect to Ollama', 'err');
   }
 }
 
@@ -759,7 +759,7 @@ async function sendMessage() {
   isStreaming = true;
   sendBtn.disabled = true;
   stopBtn.style.display = 'inline-block';
-  setStatus('Đang trả lời...', 'busy');
+  setStatus('Generating...', 'busy');
 
   abortController = new AbortController();
 
@@ -831,19 +831,19 @@ async function sendMessage() {
       const errMsg = fullText.split('[ERROR]')[1].trim();
       contentDiv.textContent = errMsg;
       contentDiv.parentElement.className = 'msg error';
-      setStatus('Lỗi', 'err');
+      setStatus('Error', 'err');
     } else {
       messages.push({ role: 'assistant', content: fullText });
-      setStatus('Sẵn sàng', 'ok');
+      setStatus('Ready', 'ok');
     }
   } catch (e) {
     if (e.name === 'AbortError') {
-      contentDiv.textContent = (contentDiv.textContent || '') + '\n\n[Đã dừng]';
-      setStatus('Đã dừng', 'ok');
+      contentDiv.textContent = (contentDiv.textContent || '') + '\n\n[Stopped]';
+      setStatus('Stopped', 'ok');
     } else {
-      contentDiv.textContent = e.message || 'Lỗi không xác định';
+      contentDiv.textContent = e.message || 'Unknown error';
       contentDiv.parentElement.className = 'msg error';
-      setStatus('Lỗi', 'err');
+      setStatus('Error', 'err');
     }
   } finally {
     isStreaming = false;
