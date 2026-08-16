@@ -101,14 +101,28 @@ body {
   white-space: pre-wrap;
   word-wrap: break-word;
 }
-.thinking .think-label {
+.thinking .thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--yellow);
   font-weight: bold;
   font-style: normal;
-  display: block;
-  margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  background: var(--bg);
+  margin-bottom: 6px;
 }
-.thinking .think-label::before { content: "🧠 "; }
+.thinking .thinking-toggle:hover { border-color: var(--yellow); color: var(--text); }
+.thinking .thinking-toggle::before { content: "🧠 "; }
+.thinking .think-content-wrap { display: none; }
+.thinking.open .think-content-wrap { display: block; }
+.thinking.streaming .thinking-toggle::after { content: " ⏳"; color: var(--text-dim); }
+.thinking.open.streaming .thinking-toggle::after { content: ""; }
 .cursor {
   display: inline-block;
   width: 8px;
@@ -246,6 +260,30 @@ body {
 #micbtn:hover { color: var(--text); border-color: var(--text-dim); }
 #micbtn.recording { color: var(--red); border-color: var(--red); background: rgba(248, 81, 73, 0.1); }
 #attachbtn:disabled, #micbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+#addbtn {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 12px;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+#addbtn:hover { color: var(--text); border-color: var(--accent); }
+#addbtn.active { color: var(--text); border-color: var(--accent); background: rgba(88, 166, 255, 0.1); }
+#addmenu {
+  display: none;
+  gap: 8px;
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+#addmenu.open { display: flex; }
 .audio-chip {
   display: inline-block;
   background: var(--bg);
@@ -376,9 +414,12 @@ body.dragover::after {
 
 <div id="inputbar">
   <span id="prompt">user@local</span>
-  <button id="attachbtn" title="Đính kèm ảnh (drag/drop cũng được)">📎</button>
+  <button id="addbtn" title="Thêm tệp đính kèm / ghi âm">＋</button>
+  <span id="addmenu">
+    <button id="attachbtn" title="Đính kèm ảnh (drag/drop cũng được)">📎 Ảnh</button>
+    <button id="micbtn" title="Ghi âm giọng nói">🎤 Ghi âm</button>
+  </span>
   <input type="file" id="fileInput" accept="image/*" multiple hidden>
-  <button id="micbtn" title="Ghi âm giọng nói">🎤</button>
   <textarea id="input" rows="1" placeholder="Nhập tin nhắn... (Enter để gửi, Shift+Enter để xuống dòng)"></textarea>
   <button id="sendbtn">Gửi</button>
   <button id="stopbtn">Dừng</button>
@@ -400,6 +441,8 @@ const attachBtn = document.getElementById('attachbtn');
 const fileInput = document.getElementById('fileInput');
 const previewBar = document.getElementById('previewbar');
 const micBtn = document.getElementById('micbtn');
+const addBtn = document.getElementById('addbtn');
+const addMenu = document.getElementById('addmenu');
 const capBadges = document.querySelectorAll('.cap-badge');
 
 let messages = [];
@@ -628,15 +671,22 @@ function addStreamingMessage() {
   roleLabel.className = 'role';
   roleLabel.textContent = 'assistant';
   const thinkingDiv = document.createElement('div');
-  thinkingDiv.className = 'thinking';
-  thinkingDiv.style.display = 'none';
-  const thinkLabel = document.createElement('span');
-  thinkLabel.className = 'think-label';
-  thinkLabel.textContent = 'thinking...';
-  const thinkContent = document.createElement('span');
+  thinkingDiv.className = 'thinking open';
+  const toggle = document.createElement('span');
+  toggle.className = 'thinking-toggle';
+  toggle.textContent = '− thinking';
+  toggle.title = 'Hiện/ẩn phần suy nghĩ';
+  toggle.addEventListener('click', () => {
+    const open = thinkingDiv.classList.toggle('open');
+    toggle.textContent = open ? '− thinking' : '+ thinking';
+  });
+  const contentWrap = document.createElement('div');
+  contentWrap.className = 'think-content-wrap';
+  const thinkContent = document.createElement('div');
   thinkContent.className = 'think-content';
-  thinkingDiv.appendChild(thinkLabel);
-  thinkingDiv.appendChild(thinkContent);
+  contentWrap.appendChild(thinkContent);
+  thinkingDiv.appendChild(toggle);
+  thinkingDiv.appendChild(contentWrap);
   const contentDiv = document.createElement('div');
   contentDiv.className = 'content';
   const cursor = document.createElement('span');
@@ -754,6 +804,7 @@ async function sendMessage() {
             hasThinking = true;
             fullThinking += obj.d;
             thinkingDiv.style.display = 'block';
+            thinkingDiv.classList.add('streaming');
             thinkContent.textContent = fullThinking;
             scrollToBottom();
           } else if (obj.t === 'content') {
@@ -769,6 +820,11 @@ async function sendMessage() {
           }
         }
       }
+    }
+
+    thinkingDiv.classList.remove('streaming');
+    if (!hasThinking) {
+      thinkingDiv.style.display = 'none';
     }
 
     if (fullText.includes('[ERROR]')) {
@@ -799,8 +855,16 @@ async function sendMessage() {
 }
 
 // --- Events ---
-attachBtn.addEventListener('click', () => fileInput.click());
+attachBtn.addEventListener('click', () => {
+  fileInput.click();
+  addMenu.classList.remove('open');
+  addBtn.classList.remove('active');
+});
 micBtn.addEventListener('click', toggleRecording);
+addBtn.addEventListener('click', () => {
+  addMenu.classList.toggle('open');
+  addBtn.classList.toggle('active');
+});
 
 modelSelect.addEventListener('change', loadModelInfo);
 

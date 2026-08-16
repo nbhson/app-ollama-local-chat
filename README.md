@@ -22,7 +22,8 @@ Mở trình duyệt: http://localhost:8080
 - 🏷️ Hiển thị khả năng model khi chọn model: Vision / Tools / Thinking / Audio (badge xanh = hỗ trợ, mờ = không)
 - 🖼️ Upload ảnh: bấm nút 📎 hoặc drag/drop ảnh vào cửa sổ chat (chỉ active khi model hỗ trợ vision)
 - 🎤 Ghi âm giọng nói gửi kèm tin nhắn (chỉ active khi model hỗ trợ audio)
-- 🧠 Hiển thị cả phần thinking và answer của model
+- 🧠 Hiển thị cả phần thinking và answer — phần thinking mở mặc định, click `[− thinking]` để thu gọn thành `[+ thinking]`
+- 🧷 Nút `＋` cạnh `user@local` mở dropdown chứa `📎 Ảnh` và `🎤 Ghi âm` (ẩn/disable theo khả năng model)
 - ⌨️ Enter để gửi, Shift+Enter để xuống dòng
 
 ## Cấu trúc
