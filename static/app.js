@@ -217,7 +217,7 @@
     div.className = 'msg ' + role;
     const roleLabel = document.createElement('span');
     roleLabel.className = 'role';
-    roleLabel.textContent = role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'error';
+    roleLabel.textContent = role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : role === 'system' ? 'system' : 'error';
     const contentDiv = document.createElement('div');
     contentDiv.className = 'content';
     contentDiv.textContent = content;
@@ -441,7 +441,14 @@
     addBtn.classList.toggle('active');
   });
 
-  modelSelect.addEventListener('change', loadModelInfo);
+  modelSelect.addEventListener('change', () => {
+    // Reset conversation context when switching models so history from
+    // the previous model is not sent to the new one.
+    messages = [];
+    chatEl.innerHTML = '';
+    addMessage('system', 'Model switched to ' + modelSelect.value + '. Conversation cleared.');
+    loadModelInfo();
+  });
 
   fileInput.addEventListener('change', () => {
     handleFiles(fileInput.files);
