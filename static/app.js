@@ -315,15 +315,11 @@
     const msg = { role: 'user', content: text };
     const sentImages = [...pendingImages];
     const sentAudio = pendingAudio;
-    let contentParts = [];
-    if (text) contentParts.push({ type: 'text', text: text });
-    sentImages.forEach(img => contentParts.push({ type: 'image', image: img.b64 }));
-    if (sentAudio) contentParts.push({ type: 'audio', audio: sentAudio.b64 });
-    if (sentAudio) {
-      msg.content = contentParts;
-    } else if (sentImages.length > 0) {
-      msg.content = contentParts;
+    if (sentImages.length > 0) {
       msg.images = sentImages.map(img => img.b64);
+    }
+    if (sentAudio) {
+      msg.audio = sentAudio.b64;
     }
 
     addMessage('user', text, sentImages.map(img => img.dataUrl), sentAudio ? sentAudio.dataUrl : null);
