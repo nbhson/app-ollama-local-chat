@@ -111,8 +111,24 @@ def stream_chat(ollama_url, payload, on_chunk):
                         on_chunk(json.dumps({"t": "think", "d": thinking}) + "\n")
                     content = msg.get("content", "")
                     if content:
+                        prog = {
+                            "t": "progress",
+                            "prompt_tokens": obj.get("prompt_eval_count", 0) or 0,
+                            "output_tokens": obj.get("eval_count", 0) or 0,
+                            "eval_duration": obj.get("eval_duration", 0) or 0,
+                            "total_duration": obj.get("total_duration", 0) or 0,
+                        }
+                        on_chunk(json.dumps(prog) + "\n")
                         on_chunk(json.dumps({"t": "content", "d": content}) + "\n")
                     if obj.get("done"):
+                        stats = {
+                            "t": "stats",
+                            "prompt_tokens": obj.get("prompt_eval_count", 0) or 0,
+                            "output_tokens": obj.get("eval_count", 0) or 0,
+                            "eval_duration": obj.get("eval_duration", 0) or 0,
+                            "total_duration": obj.get("total_duration", 0) or 0,
+                        }
+                        on_chunk(json.dumps(stats) + "\n")
                         return 200, None
             return 200, None
     except urllib.error.HTTPError as e:

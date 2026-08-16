@@ -15,6 +15,9 @@ Mở trình duyệt: http://localhost:8080
 
 ## Tính năng
 - ⚡ Streaming real-time - text hiển thị ngay khi model sinh ra từng token (nhanh như terminal)
+- 📊 Token count / cost estimator - hiển thị số token tiêu thụ mỗi response + tổng phiên, kèm ước tính chi phí API (live cập nhật theo từng token khi streaming)
+- ⏱️ Thời gian response - hiện latency dạng `"x.xs, y tokens/s"` dưới mỗi response (live hiển thị khi đang stream kèm dấu `…`)
+- 💬 Giao diện chat bubble - tin nhắn user căn phải, response assistant căn trái
 - 🎨 Giao diện terminal-style (dark theme, monospace font, cursor nhấp nháy)
 - ⚙️ Config: chọn model, Ollama URL, temperature, system prompt
 - 🛑 Nút Dừng để hủy response đang chạy
@@ -26,15 +29,24 @@ Mở trình duyệt: http://localhost:8080
 - 🧷 Nút `＋` cạnh `user@local` mở dropdown chứa `📎 Ảnh` và `🎤 Ghi âm` (ẩn/disable theo khả năng model)
 - ⌨️ Enter để gửi, Shift+Enter để xuống dòng
 
+> **Ghi chú cost estimator:** Ollama local miễn phí. Số tiền hiển thị là placeholder theo mức giá API điển hình ($0.10/1M input, $0.40/1M output) — để tham khảo, có thể chỉnh hằng số `COST_INPUT_PER_1M` / `COST_OUTPUT_PER_1M` trong `static/app.js`.
+
 ## Cấu trúc
 ```
 ollama-chat/
-├── server.py          # Python HTTP server (proxy tới Ollama, streaming)
+├── server.py              # Entry point HTTP server
+├── server_lib/
+│   ├── __init__.py
+│   ├── config.py          # Cấu hình mặc định
+│   ├── handler.py         # HTTP route handlers
+│   └── ollama.py          # Proxy /api/chat tới Ollama, streaming NDJSON
 └── static/
-    └── index.html     # Giao diện web (HTML/CSS/JS thuần)
+    ├── index.html         # Giao diện web
+    ├── app.js             # Logic frontend
+    └── style.css          # Style
 ```
 
-## Cấu hình mặc định (trong `server.py`)
+## Cấu hình mặc định (trong `server_lib/config.py`)
 
 ```python
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
@@ -54,7 +66,7 @@ DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 
 ### Cách thay đổi cấu hình
 
-**Cách 1 - Sửa trực tiếp trong `server.py`**: Mở file, sửa giá trị các biến ở đầu file, lưu và khởi động lại server.
+**Cách 1 - Sửa trực tiếp trong `server_lib/config.py`**: Mở file, sửa giá trị các biến mặc định, lưu và khởi động lại server.
 
 **Cách 2 - Thay đổi trên giao diện web** (không cần sửa code):
 - **Model**: Chọn từ dropdown trên thanh công cụ
@@ -62,7 +74,7 @@ DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 - **Temp**: Nhập giá trị temperature (0-2) vào ô số trên thanh công cụ
 - **System Prompt**: Bấm nút ⚙ để mở panel settings, sửa system prompt
 
-> **Lưu ý**: Thay đổi trên giao diện chỉ có hiệu lực trong phiên hiện tại. Khi reload trang, các giá trị sẽ trở về mặc định trong `server.py`.
+> **Lưu ý**: Thay đổi trên giao diện chỉ có hiệu lực trong phiên hiện tại. Khi reload trang, các giá trị sẽ trở về mặc định trong `server_lib/config.py`.
 
 ## Khả năng model (capabilities)
 
@@ -111,6 +123,7 @@ ollama pull gemma3:12b        # 12B (có vision)
 | Endpoint | Method | Mô tả |
 |----------|--------|-------|
 | `/` | GET | Trang chat chính |
+| `/static/*` | GET | File tĩnh (CSS/JS) |
 | `/api/models` | GET | Lấy danh sách model từ Ollama (`?url=<ollama_url>`) |
-| `/api/chat` | POST | Gửi tin nhắn chat, trả về stream NDJSON gồm `{"t":"think","d":"..."}` (phần suy nghĩ) và `{"t":"content","d":"..."}` (câu trả lời) |
 | `/api/model-info` | POST | Lấy thông tin khả năng model: `{"name", "family", "capabilities", "supports": {"vision", "tools", "thinking", "audio"}}` |
+| `/api/chat` | POST | Gửi tin nhắn chat, trả về stream NDJSON gồm `{"t":"think","d":"..."}` (phần suy nghĩ), `{"t":"content","d":"..."}` (câu trả lời), `{"t":"progress",...}` (token/latency live giữa chừng) và `{"t":"stats",...}` (thống kê cuối: `prompt_tokens`, `output_tokens`, `eval_duration`, `total_duration`, `eval_count`) |

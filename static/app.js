@@ -23,12 +23,58 @@
   const DEFAULT_URL = 'http://localhost:11434';
   const DEFAULT_TEMP = 0.7;
 
+  // Rough cost estimator. Local Ollama is free; these placeholder rates model
+  // typical API pricing (USD per 1M tokens). Tune as needed.
+  const COST_INPUT_PER_1M = 0.10;
+  const COST_OUTPUT_PER_1M = 0.40;
+
   let messages = [];
   let isStreaming = false;
   let abortController = null;
   let pendingImages = [];
   let pendingAudio = null;
   let modelCaps = { vision: false, tools: false, thinking: false, audio: false };
+  let sessionStats = { promptTokens: 0, outputTokens: 0 };
+
+  const sessionStatsEl = document.getElementById('session-stats');
+
+  function fmtNum(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+    return String(Math.round(n));
+  }
+
+  function fmtCost(tokens, ratePer1M) {
+    return '$' + ((tokens / 1e6) * ratePer1M).toFixed(4);
+  }
+
+  function updateSessionStats() {
+    const total = sessionStats.promptTokens + sessionStats.outputTokens;
+    const cost = fmtCost(sessionStats.promptTokens, COST_INPUT_PER_1M) +
+                 ' + ' + fmtCost(sessionStats.outputTokens, COST_OUTPUT_PER_1M);
+    sessionStatsEl.textContent =
+      'session: ' + fmtNum(total) + ' tokens (' +
+      fmtNum(sessionStats.promptTokens) + ' in / ' +
+      fmtNum(sessionStats.outputTokens) + ' out) · est ' + cost;
+  }
+
+  function renderMeta(metaDiv, data) {
+    const outTokens = data.output_tokens || 0;
+    const evalMs = (data.eval_duration || 0) / 1e6;
+    const totalMs = (data.total_duration || 0) / 1e6;
+    const latency = evalMs > 0 ? evalMs / 1000 : totalMs / 1000;
+    const tps = latency > 0 ? outTokens / latency : 0;
+    const parts = [
+      latency.toFixed(1) + 's',
+      Math.round(tps) + ' tokens/s',
+      fmtNum(outTokens) + ' tokens out',
+      fmtNum(data.prompt_tokens || 0) + ' tokens in',
+      'est ' + fmtCost(outTokens, COST_OUTPUT_PER_1M)
+    ];
+    if (data.live) parts.push('…');
+    metaDiv.textContent = parts.join(' · ');
+  }
 
   let mediaRecorder = null;
   let isRecording = false;
@@ -272,12 +318,15 @@
     const cursor = document.createElement('span');
     cursor.className = 'cursor';
     contentDiv.appendChild(cursor);
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'meta';
     div.appendChild(roleLabel);
     div.appendChild(thinkingDiv);
     div.appendChild(contentDiv);
+    div.appendChild(metaDiv);
     chatEl.appendChild(div);
     scrollToBottom();
-    return { div, thinkingDiv, thinkContent, contentDiv, cursor };
+    return { div, thinkingDiv, thinkContent, contentDiv, cursor, metaDiv };
   }
 
   // --- Load models ---
@@ -330,7 +379,7 @@
     inputEl.value = '';
     inputEl.style.height = 'auto';
 
-    const { thinkingDiv, thinkContent, contentDiv, cursor } = addStreamingMessage();
+    const { thinkingDiv, thinkContent, contentDiv, cursor, metaDiv } = addStreamingMessage();
     isStreaming = true;
     sendBtn.disabled = true;
     stopBtn.style.display = 'inline-block';
@@ -363,6 +412,7 @@
       let fullThinking = '';
       let buffer = '';
       let hasThinking = false;
+      let stats = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -387,6 +437,13 @@
               cursor.remove();
               contentDiv.textContent = fullText;
               scrollToBottom();
+            } else if (obj.t === 'progress') {
+              if (obj.output_tokens > 0) {
+                renderMeta(metaDiv, Object.assign({}, obj, { live: true }));
+              }
+            } else if (obj.t === 'stats') {
+              stats = obj;
+              renderMeta(metaDiv, obj);
             }
           } catch (e) {
             // Not JSON - could be error text
@@ -410,6 +467,24 @@
       } else {
         messages.push({ role: 'assistant', content: fullText });
         setStatus('Ready', 'ok');
+        if (stats) {
+          const outTokens = stats.output_tokens || 0;
+          const evalMs = (stats.eval_duration || 0) / 1e6;
+          const totalMs = (stats.total_duration || 0) / 1e6;
+          const latency = evalMs > 0 ? evalMs / 1000 : totalMs / 1000;
+          const tps = latency > 0 ? outTokens / latency : 0;
+          const meta = [
+            latency.toFixed(1) + 's',
+            Math.round(tps) + ' tokens/s',
+            fmtNum(outTokens) + ' tokens out',
+            fmtNum(stats.prompt_tokens || 0) + ' tokens in',
+            'est ' + fmtCost(outTokens, COST_OUTPUT_PER_1M)
+          ].join(' · ');
+          metaDiv.textContent = meta;
+          sessionStats.promptTokens += stats.prompt_tokens || 0;
+          sessionStats.outputTokens += outTokens;
+          updateSessionStats();
+        }
       }
     } catch (e) {
       if (e.name === 'AbortError') {

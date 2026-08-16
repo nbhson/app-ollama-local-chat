@@ -14,8 +14,8 @@ Danh sách các feature có thể thêm vào ứng dụng Ollama Chat Web, phân
 ## ⚡ Hiệu suất & Trải nghiệm
 
 7. **Scroll lock tự động** — auto-scroll xuống khi streaming, nhưng nếu user cuộn lên thì dừng (không giật màn hình)
-8. **Token count / cost estimator** — hiển thị số token tiêu thụ mỗi response, tổng phiên
-9. **Thời gian response** — hiện latency: "x.xs, y tokens/s"
+8. **Token count / cost estimator** — hiển thị số token tiêu thụ mỗi response, tổng phiên ✅ Đã triển khai (live cập nhật theo từng token)
+9. **Thời gian response** — hiện latency: "x.xs, y tokens/s" ✅ Đã triển khai (live hiển thị khi đang stream + dấu …)
 10. **Copy code block** — nút copy trên từng khối code (hiện đang pre-wrap đơn thuần)
 11. **Markdown rendering** — bật render markdown (code highlight, table, list) thay vì text thô, kèm toggle raw/rendered
 12. **Word wrap toggle** — chế độ wrap ngắn/dài như terminal
