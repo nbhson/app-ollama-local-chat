@@ -1,0 +1,1 @@
+"""Ollama Chat Web - local chat UI with terminal-like streaming."""
