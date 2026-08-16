@@ -19,7 +19,9 @@ Mở trình duyệt: http://localhost:8080
 - ⚙️ Config: chọn model, Ollama URL, temperature, system prompt
 - 🛑 Nút Dừng để hủy response đang chạy
 - 💬 Giữ lịch sử hội thoại (multi-turn context)
-- 🖼️ Upload ảnh: bấm nút 📎 hoặc drag/drop ảnh vào cửa sổ chat
+- 🏷️ Hiển thị khả năng model khi chọn model: Vision / Tools / Thinking / Audio (badge xanh = hỗ trợ, mờ = không)
+- 🖼️ Upload ảnh: bấm nút 📎 hoặc drag/drop ảnh vào cửa sổ chat (chỉ active khi model hỗ trợ vision)
+- 🎤 Ghi âm giọng nói gửi kèm tin nhắn (chỉ active khi model hỗ trợ audio)
 - 🧠 Hiển thị cả phần thinking và answer của model
 - ⌨️ Enter để gửi, Shift+Enter để xuống dòng
 
@@ -61,6 +63,21 @@ DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 
 > **Lưu ý**: Thay đổi trên giao diện chỉ có hiệu lực trong phiên hiện tại. Khi reload trang, các giá trị sẽ trở về mặc định trong `server.py`.
 
+## Khả năng model (capabilities)
+
+Khi chọn model trong dropdown, ứng dụng gọi Ollama `/api/show` và hiển thị bar khả năng:
+
+| Khả năng | Ý nghĩa | UI tương ứng |
+|----------|---------|--------------|
+| 👁 Vision | Model nhận ảnh đầu vào | Nút 📎 đính ảnh active (click hoặc drag/drop) |
+| 🔧 Tools | Model gọi function/tool calls | Badge hiển thị |
+| 🧠 Thinking | Model sinh reasoning/thinking | Badge hiển thị + phần thinking trong response |
+| 🎤 Audio | Model nhận audio đầu vào | Nút 🎤 ghi âm active, gửi kèm base64 |
+
+Detection: `vision`/`tools` lấy trực tiếp từ `capabilities` của `/api/show`. `thinking`/`audio` được suy ra thêm từ model family (qwen3, deepseek-r1, qwen2.5-omni, ...) vì Ollama không liệt kê chúng trong capabilities.
+
+> **Lưu ý:** Một số model multimodal unified (ví dụ `gemma4` family) có thể xử lý ảnh dù API không liệt kê `vision` trong capabilities — ứng dụng hiển thị theo dữ liệu API trả về.
+
 ## Model hỗ trợ
 
 ### Model hiện tại: `gemma4:12b-mlx`
@@ -95,3 +112,4 @@ ollama pull gemma3:12b        # 12B (có vision)
 | `/` | GET | Trang chat chính |
 | `/api/models` | GET | Lấy danh sách model từ Ollama (`?url=<ollama_url>`) |
 | `/api/chat` | POST | Gửi tin nhắn chat, trả về stream NDJSON gồm `{"t":"think","d":"..."}` (phần suy nghĩ) và `{"t":"content","d":"..."}` (câu trả lời) |
+| `/api/model-info` | POST | Lấy thông tin khả năng model: `{"name", "family", "capabilities", "supports": {"vision", "tools", "thinking", "audio"}}` |

@@ -206,6 +206,56 @@ body {
 }
 #settingsbtn:hover { color: var(--text); border-color: var(--text-dim); }
 #settingsbtn.active { color: var(--accent); border-color: var(--accent); }
+/* Capability bar */
+#capbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+#capbar .cap-label { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+.cap-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.cap-badge.on { color: var(--green); border-color: var(--green); }
+.cap-badge.off { opacity: 0.45; }
+/* Mic upload */
+#micbtn {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#micbtn:hover { color: var(--text); border-color: var(--text-dim); }
+#micbtn.recording { color: var(--red); border-color: var(--red); background: rgba(248, 81, 73, 0.1); }
+#attachbtn:disabled, #micbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.audio-chip {
+  display: inline-block;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
 /* Image upload */
 #attachbtn {
   background: transparent;
@@ -310,6 +360,14 @@ body.dragover::after {
   </div>
 </div>
 
+<div id="capbar">
+  <span class="cap-label">Khả năng:</span>
+  <span class="cap-badge" data-cap="vision">👁 Vision</span>
+  <span class="cap-badge" data-cap="tools">🔧 Tools</span>
+  <span class="cap-badge" data-cap="thinking">🧠 Thinking</span>
+  <span class="cap-badge" data-cap="audio">🎤 Audio</span>
+</div>
+
 <div id="chat"></div>
 
 <div id="previewbar">
@@ -320,6 +378,7 @@ body.dragover::after {
   <span id="prompt">user@local</span>
   <button id="attachbtn" title="Đính kèm ảnh (drag/drop cũng được)">📎</button>
   <input type="file" id="fileInput" accept="image/*" multiple hidden>
+  <button id="micbtn" title="Ghi âm giọng nói">🎤</button>
   <textarea id="input" rows="1" placeholder="Nhập tin nhắn... (Enter để gửi, Shift+Enter để xuống dòng)"></textarea>
   <button id="sendbtn">Gửi</button>
   <button id="stopbtn">Dừng</button>
@@ -340,11 +399,19 @@ const systemPromptEl = document.getElementById('systemPrompt');
 const attachBtn = document.getElementById('attachbtn');
 const fileInput = document.getElementById('fileInput');
 const previewBar = document.getElementById('previewbar');
+const micBtn = document.getElementById('micbtn');
+const capBadges = document.querySelectorAll('.cap-badge');
 
 let messages = [];
 let isStreaming = false;
 let abortController = null;
 let pendingImages = [];
+let pendingAudio = null;
+let modelCaps = { vision: false, tools: false, thinking: false, audio: false };
+
+let mediaRecorder = null;
+let isRecording = false;
+let recordedChunks = [];
 
 // --- Image helpers ---
 function fileToDataUrl(file) {
@@ -359,6 +426,80 @@ function fileToDataUrl(file) {
 function stripBase64Prefix(dataUrl) {
   const idx = dataUrl.indexOf(',');
   return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+}
+
+// --- Model capabilities ---
+async function loadModelInfo() {
+  const model = modelSelect.value;
+  if (!model) return;
+  try {
+    const resp = await fetch('/api/model-info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ollama_url: ollamaUrlInput.value.trim() || 'http://localhost:11434',
+        model: model
+      })
+    });
+    const data = await resp.json();
+    modelCaps = data.supports || modelCaps;
+    updateCapabilities();
+  } catch (e) {
+    // keep previous state
+  }
+}
+
+function updateCapabilities() {
+  capBadges.forEach(badge => {
+    const cap = badge.dataset.cap;
+    badge.classList.toggle('on', !!modelCaps[cap]);
+    badge.classList.toggle('off', !modelCaps[cap]);
+  });
+  attachBtn.disabled = !modelCaps.vision;
+  micBtn.disabled = !modelCaps.audio;
+}
+
+// --- Audio recording ---
+async function handleAudioBlob(blob) {
+  const dataUrl = await fileToDataUrl(blob);
+  const ext = blob.type.includes('mp4') ? 'm4a' : 'webm';
+  pendingAudio = { name: 'audio.' + ext, dataUrl: dataUrl, b64: stripBase64Prefix(dataUrl) };
+  renderPreview();
+}
+
+async function toggleRecording() {
+  if (isRecording) {
+    mediaRecorder && mediaRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    setStatus('Trình duyệt không hỗ trợ ghi âm', 'err');
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => {
+      if (e.data.size > 0) recordedChunks.push(e.data);
+    };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      if (blob.size > 0) await handleAudioBlob(blob);
+      isRecording = false;
+      micBtn.classList.remove('recording');
+      micBtn.textContent = '🎤';
+      micBtn.title = 'Ghi âm giọng nói';
+    };
+    mediaRecorder.start();
+    isRecording = true;
+    micBtn.classList.add('recording');
+    micBtn.textContent = '⏹';
+    micBtn.title = 'Dừng ghi âm';
+  } catch (e) {
+    setStatus('Không truy cập được microphone', 'err');
+  }
 }
 
 async function handleFiles(files) {
@@ -377,7 +518,7 @@ async function handleFiles(files) {
 
 function renderPreview() {
   previewBar.innerHTML = '';
-  if (pendingImages.length === 0) {
+  if (pendingImages.length === 0 && !pendingAudio) {
     previewBar.classList.remove('open');
     return;
   }
@@ -398,6 +539,24 @@ function renderPreview() {
     item.appendChild(rm);
     previewBar.appendChild(item);
   });
+  if (pendingAudio) {
+    const item = document.createElement('div');
+    item.className = 'preview-item';
+    const chip = document.createElement('span');
+    chip.className = 'audio-chip';
+    chip.textContent = '🎤 ' + pendingAudio.name;
+    const rm = document.createElement('button');
+    rm.className = 'remove';
+    rm.textContent = 'x';
+    rm.title = 'Xóa audio';
+    rm.addEventListener('click', () => {
+      pendingAudio = null;
+      renderPreview();
+    });
+    item.appendChild(chip);
+    item.appendChild(rm);
+    previewBar.appendChild(item);
+  }
   previewBar.classList.add('open');
 }
 
@@ -430,7 +589,7 @@ function scrollToBottom() {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-function addMessage(role, content, images) {
+function addMessage(role, content, images, audioUrl) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   const roleLabel = document.createElement('span');
@@ -439,6 +598,12 @@ function addMessage(role, content, images) {
   const contentDiv = document.createElement('div');
   contentDiv.className = 'content';
   contentDiv.textContent = content;
+  if (audioUrl) {
+    const audioChip = document.createElement('span');
+    audioChip.className = 'audio-chip';
+    audioChip.textContent = '🎤 audio';
+    contentDiv.appendChild(audioChip);
+  }
   div.appendChild(roleLabel);
   div.appendChild(contentDiv);
   if (images && images.length > 0) {
@@ -504,6 +669,7 @@ async function loadModels() {
         modelSelect.value = data.default;
       }
       setStatus('Sẵn sàng', 'ok');
+      loadModelInfo();
     } else {
       setStatus('Không tìm thấy model', 'err');
     }
@@ -515,17 +681,26 @@ async function loadModels() {
 // --- Send message ---
 async function sendMessage() {
   const text = inputEl.value.trim();
-  if ((!text && pendingImages.length === 0) || isStreaming) return;
+  if ((!text && pendingImages.length === 0 && !pendingAudio) || isStreaming) return;
 
   const msg = { role: 'user', content: text };
   const sentImages = [...pendingImages];
-  if (sentImages.length > 0) {
+  const sentAudio = pendingAudio;
+  let contentParts = [];
+  if (text) contentParts.push({ type: 'text', text: text });
+  sentImages.forEach(img => contentParts.push({ type: 'image', image: img.b64 }));
+  if (sentAudio) contentParts.push({ type: 'audio', audio: sentAudio.b64 });
+  if (sentAudio) {
+    msg.content = contentParts;
+  } else if (sentImages.length > 0) {
+    msg.content = contentParts;
     msg.images = sentImages.map(img => img.b64);
   }
 
-  addMessage('user', text, sentImages.map(img => img.dataUrl));
+  addMessage('user', text, sentImages.map(img => img.dataUrl), sentAudio ? sentAudio.dataUrl : null);
   messages.push(msg);
   pendingImages = [];
+  pendingAudio = null;
   renderPreview();
   inputEl.value = '';
   inputEl.style.height = 'auto';
@@ -625,6 +800,9 @@ async function sendMessage() {
 
 // --- Events ---
 attachBtn.addEventListener('click', () => fileInput.click());
+micBtn.addEventListener('click', toggleRecording);
+
+modelSelect.addEventListener('change', loadModelInfo);
 
 fileInput.addEventListener('change', () => {
   handleFiles(fileInput.files);
@@ -657,6 +835,7 @@ settingsBtn.addEventListener('click', () => {
 });
 
 // --- Init ---
+updateCapabilities();
 loadModels();
 inputEl.focus();
 </script>

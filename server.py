@@ -36,6 +36,41 @@ def fetch_models(ollama_url):
     except Exception:
         return []
 
+# Capabilities below are not exposed as standard Ollama "capabilities" fields.
+# Ollama officially reports vision/tools via /api/show; thinking/audio are
+# inferred from well-known model families so the UI can display them.
+THINKING_FAMILIES = {
+    "qwen2.5", "qwen3", "deepseek-r1", "deepseek-v3", "gemma3",
+    "mistral", "granite4-dense", "olmo", "command-r", "command-a",
+}
+AUDIO_FAMILIES = {
+    "qwen2.5-omni", "qwen3-omni", "smollm2", "llama3.2",
+}
+
+def fetch_model_info(ollama_url, model):
+    status, body = ollama_request(ollama_url, "/api/show", {"model": model})
+    if status != 200:
+        return None
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except Exception:
+        return None
+    caps = data.get("capabilities", []) or []
+    details = data.get("details", {}) or {}
+    family = (details.get("family") or "").lower()
+    supports = {
+        "vision": "vision" in caps,
+        "tools": "tools" in caps,
+        "thinking": "thinking" in caps or any(f in family for f in THINKING_FAMILIES),
+        "audio": "audio" in caps or any(f in family for f in AUDIO_FAMILIES),
+    }
+    return {
+        "name": model,
+        "family": details.get("family", ""),
+        "capabilities": caps,
+        "supports": supports,
+    }
+
 def stream_chat(ollama_url, payload, on_chunk):
     url = ollama_url.rstrip("/") + "/api/chat"
     data = json.dumps(payload).encode("utf-8")
@@ -135,6 +170,9 @@ class ChatHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/model-info":
+            self._handle_model_info()
+            return
         if parsed.path != "/api/chat":
             self._send_error(404, "Not found")
             return
@@ -180,6 +218,23 @@ class ChatHandler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except Exception:
                 pass
+
+    def _handle_model_info(self):
+        try:
+            body = json.loads(self._read_body().decode("utf-8"))
+        except Exception:
+            self._send_error(400, "Invalid JSON body")
+            return
+        ollama_url = body.get("ollama_url", DEFAULT_OLLAMA_URL)
+        model = body.get("model", "")
+        if not model:
+            self._send_error(400, "No model provided")
+            return
+        info = fetch_model_info(ollama_url, model)
+        if info is None:
+            self._send_error(404, "Model info not found")
+            return
+        self._send_json(200, info)
 
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", PORT), ChatHandler)
