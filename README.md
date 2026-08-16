@@ -19,6 +19,8 @@ Mở trình duyệt: http://localhost:8080
 - ⚙️ Config: chọn model, Ollama URL, temperature, system prompt
 - 🛑 Nút Dừng để hủy response đang chạy
 - 💬 Giữ lịch sử hội thoại (multi-turn context)
+- 🖼️ Upload ảnh: bấm nút 📎 hoặc drag/drop ảnh vào cửa sổ chat
+- 🧠 Hiển thị cả phần thinking và answer của model
 - ⌨️ Enter để gửi, Shift+Enter để xuống dòng
 
 ## Cấu trúc

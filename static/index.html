@@ -206,6 +206,86 @@ body {
 }
 #settingsbtn:hover { color: var(--text); border-color: var(--text-dim); }
 #settingsbtn.active { color: var(--accent); border-color: var(--accent); }
+/* Image upload */
+#attachbtn {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#attachbtn:hover { color: var(--text); border-color: var(--text-dim); }
+#previewbar {
+  display: none;
+  padding: 8px 16px;
+  background: var(--bg-alt);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#previewbar.open { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#previewbar .attach-hint {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.preview-item {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px;
+  display: inline-block;
+}
+.preview-item img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+.preview-item .remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  background: var(--red);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Images inside messages */
+.msg .images { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.msg .images img {
+  max-width: 220px;
+  max-height: 220px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+/* Drag overlay */
+body.dragover::after {
+  content: "Drop image here";
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 17, 23, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: bold;
+  color: var(--green);
+  border: 3px dashed var(--green);
+  z-index: 999;
+  pointer-events: none;
+}
 </style>
 </head>
 <body>
@@ -232,8 +312,14 @@ body {
 
 <div id="chat"></div>
 
+<div id="previewbar">
+  <span class="attach-hint">📎 Hình ảnh đã chọn</span>
+</div>
+
 <div id="inputbar">
   <span id="prompt">user@local</span>
+  <button id="attachbtn" title="Đính kèm ảnh (drag/drop cũng được)">📎</button>
+  <input type="file" id="fileInput" accept="image/*" multiple hidden>
   <textarea id="input" rows="1" placeholder="Nhập tin nhắn... (Enter để gửi, Shift+Enter để xuống dòng)"></textarea>
   <button id="sendbtn">Gửi</button>
   <button id="stopbtn">Dừng</button>
@@ -251,9 +337,88 @@ const settingsBtn = document.getElementById('settingsbtn');
 const settingsPanel = document.getElementById('settings');
 const systemPromptEl = document.getElementById('systemPrompt');
 
+const attachBtn = document.getElementById('attachbtn');
+const fileInput = document.getElementById('fileInput');
+const previewBar = document.getElementById('previewbar');
+
 let messages = [];
 let isStreaming = false;
 let abortController = null;
+let pendingImages = [];
+
+// --- Image helpers ---
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function stripBase64Prefix(dataUrl) {
+  const idx = dataUrl.indexOf(',');
+  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+}
+
+async function handleFiles(files) {
+  const arr = Array.from(files || []).filter(f => f.type.startsWith('image/'));
+  if (arr.length === 0) return;
+  for (const file of arr) {
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      pendingImages.push({ name: file.name, dataUrl: dataUrl, b64: stripBase64Prefix(dataUrl) });
+    } catch (err) {
+      console.error('File error', err);
+    }
+  }
+  renderPreview();
+}
+
+function renderPreview() {
+  previewBar.innerHTML = '';
+  if (pendingImages.length === 0) {
+    previewBar.classList.remove('open');
+    return;
+  }
+  pendingImages.forEach((img, i) => {
+    const item = document.createElement('div');
+    item.className = 'preview-item';
+    const thumb = document.createElement('img');
+    thumb.src = img.dataUrl;
+    const rm = document.createElement('button');
+    rm.className = 'remove';
+    rm.textContent = 'x';
+    rm.title = 'Xóa ảnh';
+    rm.addEventListener('click', () => {
+      pendingImages.splice(i, 1);
+      renderPreview();
+    });
+    item.appendChild(thumb);
+    item.appendChild(rm);
+    previewBar.appendChild(item);
+  });
+  previewBar.classList.add('open');
+}
+
+// --- Drag & drop ---
+['dragenter', 'dragover'].forEach(evt => {
+  document.addEventListener(evt, (e) => {
+    e.preventDefault();
+    document.body.classList.add('dragover');
+  });
+});
+['dragleave', 'drop'].forEach(evt => {
+  document.addEventListener(evt, (e) => {
+    e.preventDefault();
+    document.body.classList.remove('dragover');
+  });
+});
+document.addEventListener('drop', (e) => {
+  if (e.dataTransfer && e.dataTransfer.files) {
+    handleFiles(e.dataTransfer.files);
+  }
+});
 
 // --- Helpers ---
 function setStatus(text, cls) {
@@ -265,7 +430,7 @@ function scrollToBottom() {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-function addMessage(role, content) {
+function addMessage(role, content, images) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   const roleLabel = document.createElement('span');
@@ -276,6 +441,16 @@ function addMessage(role, content) {
   contentDiv.textContent = content;
   div.appendChild(roleLabel);
   div.appendChild(contentDiv);
+  if (images && images.length > 0) {
+    const imgWrap = document.createElement('div');
+    imgWrap.className = 'images';
+    images.forEach(dUrl => {
+      const im = document.createElement('img');
+      im.src = dUrl;
+      imgWrap.appendChild(im);
+    });
+    div.appendChild(imgWrap);
+  }
   chatEl.appendChild(div);
   scrollToBottom();
   return contentDiv;
@@ -340,10 +515,18 @@ async function loadModels() {
 // --- Send message ---
 async function sendMessage() {
   const text = inputEl.value.trim();
-  if (!text || isStreaming) return;
+  if ((!text && pendingImages.length === 0) || isStreaming) return;
 
-  addMessage('user', text);
-  messages.push({ role: 'user', content: text });
+  const msg = { role: 'user', content: text };
+  const sentImages = [...pendingImages];
+  if (sentImages.length > 0) {
+    msg.images = sentImages.map(img => img.b64);
+  }
+
+  addMessage('user', text, sentImages.map(img => img.dataUrl));
+  messages.push(msg);
+  pendingImages = [];
+  renderPreview();
   inputEl.value = '';
   inputEl.style.height = 'auto';
 
@@ -441,6 +624,13 @@ async function sendMessage() {
 }
 
 // --- Events ---
+attachBtn.addEventListener('click', () => fileInput.click());
+
+fileInput.addEventListener('change', () => {
+  handleFiles(fileInput.files);
+  fileInput.value = '';
+});
+
 sendBtn.addEventListener('click', sendMessage);
 
 stopBtn.addEventListener('click', () => {
