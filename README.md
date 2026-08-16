@@ -28,3 +28,57 @@ ollama-chat/
 └── static/
     └── index.html     # Giao diện web (HTML/CSS/JS thuần)
 ```
+
+## Cấu hình mặc định (trong `server.py`)
+
+```python
+DEFAULT_OLLAMA_URL = "http://localhost:11434"
+DEFAULT_MODEL = "gemma4:12b-mlx"
+DEFAULT_TEMPERATURE = 0.7
+DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
+```
+
+### Giải thích từng biến
+
+| Biến | Giá trị mặc định | Ý nghĩa |
+|------|-----------------|---------|
+| `DEFAULT_OLLAMA_URL` | `http://localhost:11434` | Địa chỉ API của Ollama server. Mặc định Ollama chạy local trên port 11434. Nếu Ollama chạy trên máy khác hoặc qua Docker, đổi thành URL tương ứng (ví dụ: `http://192.168.1.10:11434`) |
+| `DEFAULT_MODEL` | `gemma4:12b-mlx` | Model mặc định được chọn khi mở ứng dụng. Xem danh sách model đã pull bằng lệnh `ollama list`. Pull model mới: `ollama pull <tên-model>` |
+| `DEFAULT_TEMPERATURE` | `0.7` | Mức độ ngẫu nhiên/sáng tạo của model khi sinh câu trả lời (0.0 - 2.0). **Thấp (0.0-0.3)**: chính xác, nhất quán, phù hợp code/toán. **Trung bình (0.4-0.7)**: cân bằng, tự nhiên, phù hợp chat thông thường. **Cao (0.8-1.5)**: sáng tạo, đa dạng, phù hợp viết truyện/brainstorm |
+| `DEFAULT_SYSTEM_PROMPT` | `You are a helpful assistant.` | System prompt mặc định định hướng hành vi của model. Có thể thay đổi trên giao diện qua nút ⚙ (Settings) |
+
+### Cách thay đổi cấu hình
+
+**Cách 1 - Sửa trực tiếp trong `server.py`**: Mở file, sửa giá trị các biến ở đầu file, lưu và khởi động lại server.
+
+**Cách 2 - Thay đổi trên giao diện web** (không cần sửa code):
+- **Model**: Chọn từ dropdown trên thanh công cụ
+- **Ollama URL**: Nhập URL vào ô text trên thanh công cụ
+- **Temp**: Nhập giá trị temperature (0-2) vào ô số trên thanh công cụ
+- **System Prompt**: Bấm nút ⚙ để mở panel settings, sửa system prompt
+
+> **Lưu ý**: Thay đổi trên giao diện chỉ có hiệu lực trong phiên hiện tại. Khi reload trang, các giá trị sẽ trở về mặc định trong `server.py`.
+
+## Model hỗ trợ
+
+### Model hiện tại: `gemma4:12b-mlx`
+- **Capabilities**: `completion`, `tools`, `thinking`
+- **Vision (image)**: ❌ Không hỗ trợ
+- **Context length**: 262,144 tokens
+- **Parameter size**: 12.4B
+
+### Model có vision (chat với ảnh)
+Nếu bạn muốn gửi ảnh cho model, cần pull một model vision:
+```bash
+ollama pull llama3.2-vision   # 11B
+ollama pull llava             # 7B/13B
+ollama pull gemma3:12b        # 12B (có vision)
+```
+
+## API Endpoints
+
+| Endpoint | Method | Mô tả |
+|----------|--------|-------|
+| `/` | GET | Trang chat chính |
+| `/api/models` | GET | Lấy danh sách model từ Ollama (`?url=<ollama_url>`) |
+| `/api/chat` | POST | Gửi tin nhắn chat, trả về stream NDJSON gồm `{"t":"think","d":"..."}` (phần suy nghĩ) và `{"t":"content","d":"..."}` (câu trả lời) |
