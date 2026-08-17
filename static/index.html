@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ollama Chat - Terminal</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 </head>
 <body>
 <div id="topbar">
@@ -19,6 +20,7 @@
   <div class="spacer"></div>
   <span id="session-stats"></span>
   <span id="status">Connecting...</span>
+  <button id="md-toggle" title="Toggle markdown rendering (Ctrl+M)">Md</button>
 </div>
 
 <div id="settings">
@@ -55,6 +57,8 @@
   <button id="sendbtn">Send</button>
   <button id="stopbtn">Stop</button>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

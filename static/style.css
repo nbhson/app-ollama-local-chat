@@ -390,6 +390,83 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+/* Markdown rendering */
+.msg .content code {
+  background: var(--bg);
+  color: var(--accent);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.msg .content pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+  position: relative;
+}
+.msg .content pre code {
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+  font-size: 13px;
+}
+.copy-wrapper {
+  position: relative;
+  margin: 8px 0;
+}
+.copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--bg-alt);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  z-index: 1;
+}
+.copy-btn:hover { color: var(--text); border-color: var(--accent); }
+.msg .content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+.msg .content th, .msg .content td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+.msg .content th {
+  background: var(--bg-alt);
+  font-weight: bold;
+}
+.msg .content ul, .msg .content ol {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.msg .content li { margin: 4px 0; }
+.msg .content p { margin: 8px 0; }
+.msg .content p:first-child { margin-top: 0; }
+.msg .content p:last-child { margin-bottom: 0; }
+#md-toggle {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+#md-toggle:hover { color: var(--text); border-color: var(--text-dim); }
+#md-toggle.active { color: var(--accent); border-color: var(--accent); }
 /* Drag overlay */
 body.dragover::after {
   content: "Drop image here";

@@ -35,6 +35,7 @@
   let pendingAudio = null;
   let modelCaps = { vision: false, tools: false, thinking: false, audio: false };
   let sessionStats = { promptTokens: 0, outputTokens: 0 };
+  let mdRendering = false;
 
   const sessionStatsEl = document.getElementById('session-stats');
 
@@ -266,7 +267,12 @@
     roleLabel.textContent = role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'error';
     const contentDiv = document.createElement('div');
     contentDiv.className = 'content';
-    contentDiv.textContent = content;
+    if (mdRendering) {
+      contentDiv.innerHTML = renderMarkdown(content);
+      attachCopyButtons(contentDiv);
+    } else {
+      contentDiv.textContent = content;
+    }
     if (audioUrl) {
       const audioChip = document.createElement('span');
       audioChip.className = 'audio-chip';
@@ -435,7 +441,12 @@
             } else if (obj.t === 'content') {
               fullText += obj.d;
               cursor.remove();
-              contentDiv.textContent = fullText;
+              if (mdRendering) {
+                contentDiv.innerHTML = renderMarkdown(fullText);
+                attachCopyButtons(contentDiv);
+              } else {
+                contentDiv.textContent = fullText;
+              }
               scrollToBottom();
             } else if (obj.t === 'progress') {
               if (obj.output_tokens > 0) {
@@ -504,6 +515,60 @@
     }
   }
 
+  // --- Markdown rendering ---
+  function renderMarkdown(text) {
+    if (typeof marked === 'undefined') return text;
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          try { return hljs.highlight(code, { language: lang }).value; }
+          catch (e) {}
+        }
+        try { return hljs.highlightAuto(code).value; }
+        catch (e) {}
+        return code;
+      },
+      breaks: true
+    });
+    return marked.parse(text);
+  }
+
+  function attachCopyButtons(container) {
+    const codeBlocks = container.querySelectorAll('pre code');
+    codeBlocks.forEach((codeEl) => {
+      const pre = codeEl.parentElement;
+      if (!pre || pre.className.includes('copy-wrapper')) return;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'copy-wrapper';
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.title = 'Copy code';
+      btn.textContent = 'Copy';
+      btn.addEventListener('click', () => {
+        navigator.clipboard.writeText(codeEl.textContent).then(() => {
+          btn.textContent = 'Copied!';
+          setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+        });
+      });
+      wrapper.appendChild(btn);
+    });
+  }
+
+  function refreshMarkdownRendering() {
+    document.querySelectorAll('.msg.assistant .content').forEach((contentDiv) => {
+      const rawText = contentDiv.textContent;
+      contentDiv.innerHTML = renderMarkdown(rawText);
+      attachCopyButtons(contentDiv);
+    });
+    document.querySelectorAll('.msg.user .content').forEach((contentDiv) => {
+      const rawText = contentDiv.textContent;
+      contentDiv.innerHTML = renderMarkdown(rawText);
+      attachCopyButtons(contentDiv);
+    });
+  }
+
   // --- Events ---
   attachBtn.addEventListener('click', () => {
     fileInput.click();
@@ -517,6 +582,22 @@
   });
 
   modelSelect.addEventListener('change', loadModelInfo);
+
+  const mdToggleBtn = document.getElementById('md-toggle');
+  if (mdToggleBtn) {
+    mdToggleBtn.addEventListener('click', () => {
+      mdRendering = !mdRendering;
+      mdToggleBtn.classList.toggle('active', mdRendering);
+      mdToggleBtn.title = mdRendering ? 'Switch to raw text (Ctrl+M)' : 'Switch to markdown (Ctrl+M)';
+      refreshMarkdownRendering();
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'm' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      mdToggleBtn && mdToggleBtn.click();
+    }
+  });
 
   fileInput.addEventListener('change', () => {
     handleFiles(fileInput.files);
