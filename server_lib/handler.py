@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 from .config import (DEFAULT_OLLAMA_URL, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
-                     DEFAULT_SYSTEM_PROMPT, STATIC_DIR)
+                     DEFAULT_SYSTEM_PROMPT, STATIC_DIR, validate_ollama_url)
 from .ollama import fetch_models, fetch_model_info, stream_chat
 
 
@@ -63,7 +63,10 @@ class ChatHandler(BaseHTTPRequestHandler):
             self._serve_static("index.html")
         elif path == "/api/models":
             query = parse_qs(parsed.query)
-            url = query.get("url", [DEFAULT_OLLAMA_URL])[0]
+            url, err = validate_ollama_url(query.get("url", [DEFAULT_OLLAMA_URL])[0])
+            if err:
+                self._send_json(400, {"error": err})
+                return
             self._send_json(200, {"models": fetch_models(url), "default": DEFAULT_MODEL})
         elif path.startswith("/static/"):
             self._serve_static(path[len("/static/"):])
@@ -86,7 +89,10 @@ class ChatHandler(BaseHTTPRequestHandler):
         body = self._read_json()
         if body is None:
             return
-        ollama_url = body.get("ollama_url", DEFAULT_OLLAMA_URL)
+        ollama_url, err = validate_ollama_url(body.get("ollama_url", DEFAULT_OLLAMA_URL))
+        if err:
+            self._send_error(400, err)
+            return
         model = body.get("model", DEFAULT_MODEL)
         messages = body.get("messages", [])
         temperature = body.get("temperature", DEFAULT_TEMPERATURE)
@@ -129,7 +135,10 @@ class ChatHandler(BaseHTTPRequestHandler):
         body = self._read_json()
         if body is None:
             return
-        ollama_url = body.get("ollama_url", DEFAULT_OLLAMA_URL)
+        ollama_url, err = validate_ollama_url(body.get("ollama_url", DEFAULT_OLLAMA_URL))
+        if err:
+            self._send_error(400, err)
+            return
         model = body.get("model", "")
         if not model:
             self._send_error(400, "No model provided")
