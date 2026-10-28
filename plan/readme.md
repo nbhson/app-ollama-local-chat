@@ -30,6 +30,50 @@
 - [x] Fix #1–#13
 - [x] Commit + self-review
 
+## Round 2 (2026-10-29)
+
+### Kết quả deep review (đợt 2)
+
+Server:
+
+| # | Severity | Vị trí | Vấn đề | Fix |
+|---|----------|--------|--------|-----|
+| S1 | MAJOR | handler.py `_read_json` | Body quá lớn NÀY JSON hỏng đều raise `ValueError` → JSON hỏng bị trả 413 thay vì 400 | Tách sentinel exception riêng cho body-too-large |
+| S2 | MAJOR | ollama.py `fetch_models` | Ollama chết trả `[]` — client không phân biệt "không có model" vs "không kết nối được"; trả về `{models, error}` | Đổi shape response, UI hiển thị lỗi thật |
+| S3 | MAJOR | ollama.py `_request` | Timeout 300s cho GET `/api/tags` — UI treo gần 5 phút khi Ollama chết | Timeout ngắn (10s) cho listing, giữ 600s cho stream |
+| S4 | MINOR | handler.py `_read_body` | `Transfer-Encoding: chunked` (không có Content-Length) → body không đọc, rác vào request kế tiếp trên keep-alive | Từ chối 411 khi có chunked không đọc được |
+| S5 | MINOR | handler.py | Thiếu security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`) | Thêm vào mọi response |
+| S6 | MINOR | handler.py | `do_HEAD` không có → 501 cho HEAD / | Thêm do_HEAD trả header không body |
+| S7 | MINOR | handler.py `_handle_chat` | Sau khi client ngắt kết nối, server vẫn tiếp tục đọc hết stream từ Ollama | Ném ConnectionError từ on_chunk và ngừng đọc upstream |
+
+Frontend:
+
+| # | Severity | Vị trí | Vấn đề | Fix |
+|---|----------|--------|--------|-----|
+| F1 | MAJOR | app.js `renderMarkdown` | marked không sanitize → XSS từ output model (local app nhưng vẫn harden) | DOMPurify sanitize sau parse |
+| F2 | MAJOR | app.js `renderMarkdown` | Option `highlight` đã bị loại khỏi marked v5+ → syntax highlight âm thầm không chạy | Dùng `hljs.highlightElement` sau parse |
+| F3 | MAJOR | app.js `refreshMarkdownRendering` | Lấy raw text từ `textContent` sau khi đã render HTML → toggle Md làm hỏng nội dung | Lưu raw text trong `data-raw` |
+| F4 | MINOR | app.js | Auto-scroll luôn ép xuống cuối khi streaming → user đọc phần trên bị giật màn hình | Scroll-lock: chỉ tự cuộn khi đang ở gần đáy |
+| F5 | MINOR | app.js | Code render meta bị trùng 2 nơi (`renderMeta` + block stats) | Dedupe qua 1 hàm |
+| F6 | MINOR | style.css | Không responsive mobile; spacing/typography thiếu hệ thống | Design tokens, media queries, theme sáng/tối |
+
+### Feature mới (đợt 2)
+
+1. **Conversation history + persistence** — sidebar danh sách hội thoại lưu localStorage, new/switch/rename/delete, auto-title từ message đầu.
+2. **System prompt presets** — dropdown preset (General, Code assistant, Translator, Concise, Custom).
+3. **Export chat** — tải hội thoại ra Markdown hoặc JSON.
+4. **Light/dark theme** — toggle lưu localStorage, CSS variables.
+5. **Regenerate** — nút tạo lại response cuối.
+
+### Trạng thái Round 2
+
+- [ ] Plan
+- [ ] Server fixes S1–S7
+- [ ] Frontend fixes F1–F6
+- [ ] Features 1–5
+- [ ] Tests + verify server start
+- [ ] Commit + self-review
+
 ## Review Log
 
 ### Vòng 1

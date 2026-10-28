@@ -15,8 +15,13 @@ AUDIO_FAMILIES = {
     "qwen2.5-omni", "qwen3-omni", "smollm2", "llama3.2",
 }
 
+# Listing/info phải trả nhanh — nếu Ollama chết thì UI không nên treo cả phút.
+LIST_TIMEOUT = 10
+# Stream chat: model chạy lâu là bình thường.
+STREAM_TIMEOUT = 600
 
-def _request(url, path, payload=None, timeout=300):
+
+def _request(url, path, payload=None, timeout=LIST_TIMEOUT):
     data = None
     headers = {"Content-Type": "application/json"}
     if payload is not None:
@@ -40,17 +45,20 @@ def _decode_json(body):
 
 
 def fetch_models(ollama_url):
-    status, body = _request(ollama_url, "/api/tags")
+    """Return (models, error). error is None khi thành công."""
+    status, body = _request(ollama_url, "/api/tags", timeout=LIST_TIMEOUT)
+    if status == 0:
+        return [], "Cannot connect to Ollama: " + body.decode("utf-8", "replace")
     if status != 200:
-        return []
+        return [], "Ollama returned HTTP %d" % status
     data = _decode_json(body)
     if not data:
-        return []
-    return [m.get("name", "") for m in data.get("models", [])]
+        return [], "Invalid response from Ollama"
+    return [m.get("name", "") for m in data.get("models", [])], None
 
 
 def fetch_model_info(ollama_url, model):
-    status, body = _request(ollama_url, "/api/show", {"model": model})
+    status, body = _request(ollama_url, "/api/show", {"model": model}, timeout=LIST_TIMEOUT)
     if status != 200:
         return None
     data = _decode_json(body)
@@ -81,14 +89,18 @@ def _extract_error(err):
 
 
 def stream_chat(ollama_url, payload, on_chunk):
-    """Stream /api/chat, calling on_chunk(text) with NDJSON per token."""
+    """Stream /api/chat, calling on_chunk(text) with NDJSON per token.
+
+    on_chunk được phép raise ConnectionError (client ngắt) — exception
+    propagate lên caller để ngừng đọc upstream ngay.
+    """
     url = ollama_url.rstrip("/") + "/api/chat"
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data,
                                  headers={"Content-Type": "application/json"},
                                  method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=600) as resp:
+        with urllib.request.urlopen(req, timeout=STREAM_TIMEOUT) as resp:
             buffer = b""
             while True:
                 chunk = resp.read(4096)
@@ -136,6 +148,9 @@ def stream_chat(ollama_url, payload, on_chunk):
                         on_chunk(json.dumps(stats) + "\n")
                         return 200, None
             return 200, None
+    except (BrokenPipeError, ConnectionResetError):
+        # Client ngắt kết nối — raise lên để caller ngừng luôn, không gửi error frame.
+        raise
     except urllib.error.HTTPError as e:
         return e.code, _extract_error(e)
     except Exception as e:

@@ -14,8 +14,12 @@ from .ollama import fetch_models, fetch_model_info, stream_chat
 MAX_BODY_BYTES = 25 * 1024 * 1024
 
 
+class BodyTooLarge(ValueError):
+    """Sentinel riêng: phân biệt body vượt giới hạn (413) với JSON hỏng (400)."""
+
+
 class ChatHandler(BaseHTTPRequestHandler):
-    server_version = "OllamaChat/1.0"
+    server_version = "OllamaChat/1.1"
 
     def log_request(self, code='-', size='-'):
         # Chỉ ghi log request lỗi (>= 500). Log mọi request sẽ spam stdout khi
@@ -29,12 +33,19 @@ class ChatHandler(BaseHTTPRequestHandler):
 
     # --- Response helpers ---
 
+    def _security_headers(self):
+        # Hardening: tránh MIME-sniffing, clickjacking, leak referrer.
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+
     def _send_json(self, status, obj):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self._security_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -42,6 +53,10 @@ class ChatHandler(BaseHTTPRequestHandler):
         self._send_json(status, {"error": msg})
 
     def _read_body(self):
+        if (self.headers.get("Transfer-Encoding", "") or "").strip().lower() == "chunked":
+            # stdlib handler không decode chunked — nếu đọc theo Content-Length
+            # (thiếu) thì body sót lại làm hỏng request kế trên keep-alive.
+            raise BodyTooLarge("chunked body not supported")
         try:
             length = int(self.headers.get("Content-Length", 0))
         except ValueError:
@@ -49,7 +64,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         if length <= 0:
             return b""
         if length > MAX_BODY_BYTES:
-            raise ValueError("body too large")
+            raise BodyTooLarge("body too large")
         return self.rfile.read(length)
 
     def _serve_static(self, filename):
@@ -73,12 +88,13 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype or "application/octet-stream")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
+        self._security_headers()
         self.end_headers()
         self.wfile.write(body)
 
     # --- Handlers ---
 
-    def do_GET(self):
+    def _handle_get(self, include_body=True):
         parsed = urlparse(self.path)
         path = parsed.path
         if path in ("/", "/index.html"):
@@ -89,11 +105,22 @@ class ChatHandler(BaseHTTPRequestHandler):
             if err:
                 self._send_json(400, {"error": err})
                 return
-            self._send_json(200, {"models": fetch_models(url), "default": DEFAULT_MODEL})
+            models, fetch_err = fetch_models(url)
+            resp = {"models": models, "default": DEFAULT_MODEL}
+            if fetch_err:
+                resp["error"] = fetch_err
+            self._send_json(200, resp)
         elif path.startswith("/static/"):
             self._serve_static(path[len("/static/"):])
         else:
             self._send_error(404, "Not found")
+
+    def do_GET(self):
+        self._handle_get(include_body=True)
+
+    def do_HEAD(self):
+        # HEAD / trả header không body (health check, proxy).
+        self._handle_get(include_body=False)
 
     def do_POST(self):
         parsed = urlparse(self.path)
@@ -107,10 +134,22 @@ class ChatHandler(BaseHTTPRequestHandler):
 
     # --- API: /api/chat ---
 
+    @staticmethod
+    def _validate_messages(messages):
+        """Return error string or None. Mỗi message phải có role/content string."""
+        if not isinstance(messages, list) or not messages:
+            return "No messages provided"
+        for m in messages:
+            if (not isinstance(m, dict)
+                    or not isinstance(m.get("role"), str)
+                    or not isinstance(m.get("content"), str)):
+                return "Each message must have string 'role' and 'content'"
+        return None
+
     def _handle_chat(self):
         try:
             body = self._read_json()
-        except ValueError:
+        except BodyTooLarge:
             self._send_error(413, "Request body too large")
             return
         if body is None:
@@ -120,15 +159,10 @@ class ChatHandler(BaseHTTPRequestHandler):
             return
         # Validate messages TRƯỚC khi đụng tới URL (fail fast trên input sai)
         messages = body.get("messages", [])
-        if not isinstance(messages, list) or not messages:
-            self._send_error(400, "No messages provided")
+        err = self._validate_messages(messages)
+        if err:
+            self._send_error(400, err)
             return
-        for m in messages:
-            if (not isinstance(m, dict)
-                    or not isinstance(m.get("role"), str)
-                    or not isinstance(m.get("content"), str)):
-                self._send_error(400, "Each message must have string 'role' and 'content'")
-                return
 
         ollama_url, err = validate_ollama_url(body.get("ollama_url") or DEFAULT_OLLAMA_URL)
         if err:
@@ -161,13 +195,15 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         def on_chunk(text):
-            try:
-                self.wfile.write(text.encode("utf-8"))
-                self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
-                raise
+            # Client ngắt kết nối → raise để stream_chat ngừng đọc upstream
+            # luôn thay vì tiếp tục pull hết token từ Ollama vô ích.
+            self.wfile.write(text.encode("utf-8"))
+            self.wfile.flush()
 
-        status, error = stream_chat(ollama_url, payload, on_chunk)
+        try:
+            status, error = stream_chat(ollama_url, payload, on_chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            return  # client đã ngắt — không còn gì để gửi
         if error:
             # Lỗi được gửi như một NDJSON frame có cấu trúc — client parse được
             # mà không phải đoán bằng substring "[ERROR]" trong nội dung model
@@ -183,7 +219,7 @@ class ChatHandler(BaseHTTPRequestHandler):
     def _handle_model_info(self):
         try:
             body = self._read_json()
-        except ValueError:
+        except BodyTooLarge:
             self._send_error(413, "Request body too large")
             return
         if body is None:
@@ -210,9 +246,9 @@ class ChatHandler(BaseHTTPRequestHandler):
     def _read_json(self):
         try:
             return json.loads(self._read_body().decode("utf-8"))
-        except ValueError:
-            # Body quá lớn — re-raise để caller trả 413 thay vì 400 chung chung
+        except BodyTooLarge:
+            # Re-raise để caller trả 413 thay vì 400 chung chung
             raise
-        except Exception:
+        except (ValueError, UnicodeDecodeError):
             self._send_error(400, "Invalid JSON body")
             return None
