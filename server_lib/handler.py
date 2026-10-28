@@ -10,12 +10,22 @@ from .config import (DEFAULT_OLLAMA_URL, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
                      DEFAULT_SYSTEM_PROMPT, STATIC_DIR, validate_ollama_url)
 from .ollama import fetch_models, fetch_model_info, stream_chat
 
+# Chặn DoS: client gửi Content-Length khổng lồ sẽ làm server đọc vô hạn vào RAM.
+MAX_BODY_BYTES = 25 * 1024 * 1024
+
 
 class ChatHandler(BaseHTTPRequestHandler):
     server_version = "OllamaChat/1.0"
 
-    def log_message(self, format, *args):
-        pass
+    def log_request(self, code='-', size='-'):
+        # Chỉ ghi log request lỗi (>= 500). Log mọi request sẽ spam stdout khi
+        # stream chat; im lặng hoàn toàn thì mất khả năng debug lỗi 5xx.
+        try:
+            status = int(code)
+        except (ValueError, TypeError):
+            status = 0
+        if status >= 500:
+            super().log_request(code, size)
 
     # --- Response helpers ---
 
@@ -32,8 +42,15 @@ class ChatHandler(BaseHTTPRequestHandler):
         self._send_json(status, {"error": msg})
 
     def _read_body(self):
-        length = int(self.headers.get("Content-Length", 0))
-        return self.rfile.read(length) if length > 0 else b""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return b""
+        if length > MAX_BODY_BYTES:
+            raise ValueError("body too large")
+        return self.rfile.read(length)
 
     def _serve_static(self, filename):
         safe = os.path.normpath(filename)
@@ -41,6 +58,11 @@ class ChatHandler(BaseHTTPRequestHandler):
             self._send_error(403, "Forbidden")
             return
         filepath = os.path.join(STATIC_DIR, safe)
+        # Chốt bằng realpath: symlink/escape trick (vd "sub/../../etc/passwd")
+        # qua được normpath nhưng không được rời khỏi STATIC_DIR.
+        if not os.path.realpath(filepath).startswith(os.path.realpath(STATIC_DIR) + os.sep):
+            self._send_error(403, "Forbidden")
+            return
         if not os.path.isfile(filepath):
             self._send_error(404, "Not found")
             return
@@ -86,30 +108,54 @@ class ChatHandler(BaseHTTPRequestHandler):
     # --- API: /api/chat ---
 
     def _handle_chat(self):
-        body = self._read_json()
+        try:
+            body = self._read_json()
+        except ValueError:
+            self._send_error(413, "Request body too large")
+            return
         if body is None:
             return
-        ollama_url, err = validate_ollama_url(body.get("ollama_url", DEFAULT_OLLAMA_URL))
+        if not isinstance(body, dict):
+            self._send_error(400, "Body must be a JSON object")
+            return
+        # Validate messages TRƯỚC khi đụng tới URL (fail fast trên input sai)
+        messages = body.get("messages", [])
+        if not isinstance(messages, list) or not messages:
+            self._send_error(400, "No messages provided")
+            return
+        for m in messages:
+            if (not isinstance(m, dict)
+                    or not isinstance(m.get("role"), str)
+                    or not isinstance(m.get("content"), str)):
+                self._send_error(400, "Each message must have string 'role' and 'content'")
+                return
+
+        ollama_url, err = validate_ollama_url(body.get("ollama_url") or DEFAULT_OLLAMA_URL)
         if err:
             self._send_error(400, err)
             return
         model = body.get("model", DEFAULT_MODEL)
-        messages = body.get("messages", [])
+        if not isinstance(model, str) or not model.strip():
+            self._send_error(400, "Invalid model")
+            return
         temperature = body.get("temperature", DEFAULT_TEMPERATURE)
+        if not isinstance(temperature, (int, float)) or isinstance(temperature, bool) \
+                or not (0 <= float(temperature) <= 2):
+            self._send_error(400, "temperature must be a number between 0 and 2")
+            return
         system_prompt = body.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
-
-        if not messages:
-            self._send_error(400, "No messages provided")
+        if system_prompt is not None and not isinstance(system_prompt, str):
+            self._send_error(400, "Invalid system_prompt")
             return
 
-        if system_prompt and (not messages or messages[0].get("role") != "system"):
+        if system_prompt and messages[0].get("role") != "system":
             messages = [{"role": "system", "content": system_prompt}] + messages
 
         payload = {"model": model, "messages": messages, "stream": True,
-                   "options": {"temperature": temperature}}
+                   "options": {"temperature": float(temperature)}}
 
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
@@ -123,8 +169,11 @@ class ChatHandler(BaseHTTPRequestHandler):
 
         status, error = stream_chat(ollama_url, payload, on_chunk)
         if error:
+            # Lỗi được gửi như một NDJSON frame có cấu trúc — client parse được
+            # mà không phải đoán bằng substring "[ERROR]" trong nội dung model
+            # (model hoàn toàn có thể sinh ra đúng chuỗi đó).
             try:
-                self.wfile.write(f"\n\n[ERROR] {error}".encode("utf-8"))
+                self.wfile.write((json.dumps({"t": "error", "d": str(error)}) + "\n").encode("utf-8"))
                 self.wfile.flush()
             except Exception:
                 pass
@@ -132,8 +181,15 @@ class ChatHandler(BaseHTTPRequestHandler):
     # --- API: /api/model-info ---
 
     def _handle_model_info(self):
-        body = self._read_json()
+        try:
+            body = self._read_json()
+        except ValueError:
+            self._send_error(413, "Request body too large")
+            return
         if body is None:
+            return
+        if not isinstance(body, dict):
+            self._send_error(400, "Body must be a JSON object")
             return
         ollama_url, err = validate_ollama_url(body.get("ollama_url", DEFAULT_OLLAMA_URL))
         if err:
@@ -154,6 +210,9 @@ class ChatHandler(BaseHTTPRequestHandler):
     def _read_json(self):
         try:
             return json.loads(self._read_body().decode("utf-8"))
+        except ValueError:
+            # Body quá lớn — re-raise để caller trả 413 thay vì 400 chung chung
+            raise
         except Exception:
             self._send_error(400, "Invalid JSON body")
             return None

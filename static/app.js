@@ -339,7 +339,8 @@
   async function loadModels() {
     setStatus('Loading models...', 'busy');
     try {
-      const resp = await fetch('/api/models?url=' + encodeURIComponent(ollamaUrl()));
+      const urlParam = ollamaUrl();
+      const resp = await fetch('/api/models' + (urlParam ? '?url=' + encodeURIComponent(urlParam) : ''));
       const data = await resp.json();
       modelSelect.innerHTML = '';
       if (data.models && data.models.length > 0) {
@@ -419,6 +420,7 @@
       let buffer = '';
       let hasThinking = false;
       let stats = null;
+      let serverError = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -448,6 +450,11 @@
                 contentDiv.textContent = fullText;
               }
               scrollToBottom();
+            } else if (obj.t === 'error') {
+              // Server gửi lỗi dạng frame có cấu trúc {"t":"error","d":"..."}
+              // (trước đây là sentinel text "[ERROR] ..." — model có thể tự
+              // sinh ra đúng chuỗi đó và gây nhận diện sai).
+              serverError = obj.d || 'Unknown server error';
             } else if (obj.t === 'progress') {
               if (obj.output_tokens > 0) {
                 renderMeta(metaDiv, Object.assign({}, obj, { live: true }));
@@ -457,10 +464,7 @@
               renderMeta(metaDiv, obj);
             }
           } catch (e) {
-            // Not JSON - could be error text
-            if (line.includes('[ERROR]')) {
-              fullText += line;
-            }
+            // Dòng không phải JSON — không còn sentinel [ERROR] nên bỏ qua im lặng
           }
         }
       }
@@ -470,9 +474,8 @@
         thinkingDiv.style.display = 'none';
       }
 
-      if (fullText.includes('[ERROR]')) {
-        const errMsg = fullText.split('[ERROR]')[1].trim();
-        contentDiv.textContent = errMsg;
+      if (serverError) {
+        contentDiv.textContent = serverError;
         contentDiv.parentElement.className = 'msg error';
         setStatus('Error', 'err');
       } else {
@@ -549,6 +552,10 @@
       btn.addEventListener('click', () => {
         navigator.clipboard.writeText(codeEl.textContent).then(() => {
           btn.textContent = 'Copied!';
+          setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+        }).catch((err) => {
+          console.error('Copy failed:', err);
+          btn.textContent = 'Failed';
           setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
         });
       });
