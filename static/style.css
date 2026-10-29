@@ -278,6 +278,16 @@ button, input, select, textarea { font-family: inherit; }
 #settings textarea { width: 100%; min-height: 64px; resize: vertical; line-height: 1.5; }
 #settings .field { flex: 0 0 auto; min-width: 200px; }
 #settings .field.wide { flex-basis: 100%; }
+#settingsbtn {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: var(--fs-base);
+  cursor: pointer;
+}
+#settingsbtn:hover { color: var(--text); border-color: var(--text-dim); }
 #settingsbtn.active { color: var(--accent); border-color: var(--accent); }
 /* Capability bar */
 #capbar {
@@ -562,9 +572,7 @@ button, input, select, textarea { font-family: inherit; }
   font-size: 13px;
   font-family: var(--font-mono);
 }
-.msg .content pre, .copy-wrapper {
-  margin: var(--sp-2) 0;
-}
+.msg .content pre { margin: var(--sp-2) 0; }
 .copy-wrapper { position: relative; }
 .msg .content pre {
   background: var(--code-bg);
@@ -600,9 +608,6 @@ button, input, select, textarea { font-family: inherit; }
 }
 .msg .content a { color: var(--accent); }
 .msg .content hr { border: none; border-top: 1px solid var(--border); margin: var(--sp-3) 0; }
-.copy-wrapper {
-  position: relative;
-}
 .copy-btn {
   position: absolute;
   top: 6px;

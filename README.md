@@ -29,6 +29,15 @@ Mở trình duyệt: http://localhost:8080
 - 🧷 Nút `＋` cạnh `user@local` mở dropdown chứa `📎 Ảnh` và `🎤 Ghi âm` (ẩn/disable theo khả năng model)
 - ⌨️ Enter để gửi, Shift+Enter để xuống dòng
 
+### Mới trong Round 2
+- 🗂️ **Lịch sử hội thoại** — sidebar danh sách hội thoại lưu localStorage: tạo mới / chuyển / đổi tên / xóa, tự đặt tiêu đề từ tin nhắn đầu
+- 🧩 **System prompt presets** — General / Code assistant / Translator / Concise / Custom
+- 📤 **Export chat** — tải hội thoại hiện tại ra Markdown hoặc JSON
+- 🌗 **Theme sáng/tối** — toggle trên topbar, lưu localStorage, CSS variables (kèm màu syntax theo theme)
+- ↻ **Regenerate** — tạo lại response cuối cùng
+- 🔒 Markdown render qua DOMPurify (sanitize output model), syntax highlight chạy đúng với hljs hiện đại
+- 📱 Responsive: sidebar thành overlay trên mobile; cải thiện spacing/typography
+
 > **Ghi chú cost estimator:** Ollama local miễn phí. Số tiền hiển thị là placeholder theo mức giá API điển hình ($0.10/1M input, $0.40/1M output) — để tham khảo, có thể chỉnh hằng số `COST_INPUT_PER_1M` / `COST_OUTPUT_PER_1M` trong `static/app.js`.
 
 ## Cấu trúc

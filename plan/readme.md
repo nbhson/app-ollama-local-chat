@@ -57,6 +57,18 @@ Frontend:
 | F5 | MINOR | app.js | Code render meta bị trùng 2 nơi (`renderMeta` + block stats) | Dedupe qua 1 hàm |
 | F6 | MINOR | style.css | Không responsive mobile; spacing/typography thiếu hệ thống | Design tokens, media queries, theme sáng/tối |
 
+Phát hiện thêm trong quá trình implement (đợt 2):
+
+| # | Severity | Vị trí | Vấn đề | Fix |
+|---|----------|--------|--------|-----|
+| X1 | MAJOR | handler `on_chunk` | `socket.timeout` khi client nhận chậm không bị coi là ngắt → handler thread treo đến 600s | Ghi fail → raise `ConnectionError`, ngừng đọc upstream |
+| X2 | MAJOR | app.js | Switch conversation giữa lúc streaming → reply một phần rơi vào conversation SAI (closure đọc `messages` mới) | Capture `hist` đầu hàm; push vào đúng array; tìm conv theo reference khi save |
+| X3 | MAJOR | app.js | `messages` gửi server chứa `{dataUrl}` (dùng cho display/persist) thay vì base64 → Ollama nhận payload sai | Map `stripBase64Prefix(dataUrl)` lúc build payload |
+| X4 | MINOR | handler.py | Không có CSP → thiếu một lớp bảo vệ nếu CDN bị compromise | CSP chặt: script/style chỉ self + 2 CDN, `frame-ancestors 'none'` |
+| X5 | MINOR | handler.py | Abort chỉ catch BrokenPipe/Reset — half-open connection treo thread | Gộp thành `except ConnectionError` |
+| X6 | MINOR | app.js | Abort giữa chừng làm mất text đã stream (không push vào history) | Lưu partial text + `_[Stopped]_` như một assistant turn |
+| X7 | MINOR | ollama.py `fetch_model_info` | 404 (model không tồn tại) và 502 (không kết nối được) bị gộp → client không phân biệt | Trả `(info, error, upstream_status)`, handler map 404/502 |
+
 ### Feature mới (đợt 2)
 
 1. **Conversation history + persistence** — sidebar danh sách hội thoại lưu localStorage, new/switch/rename/delete, auto-title từ message đầu.
@@ -67,14 +79,28 @@ Frontend:
 
 ### Trạng thái Round 2
 
-- [ ] Plan
-- [ ] Server fixes S1–S7
-- [ ] Frontend fixes F1–F6
-- [ ] Features 1–5
-- [ ] Tests + verify server start
-- [ ] Commit + self-review
+- [x] Plan
+- [x] Server fixes S1–S7 (+ X1, X4, X5, X7)
+- [x] Frontend fixes F1–F6 (+ X2, X3, X6)
+- [x] Features 1–5 (history, presets, export, theme, regenerate)
+- [x] Tests + verify server start: 22/22 unit tests pass; e2e với mock Ollama
+      (stream NDJSON content/stats frame, /api/models, /api/model-info, 411/413/400/502 paths)
+- [x] Commit + self-review
+
+### Verify
+
+- `python3 -m unittest discover -s tests` → 22 OK (19 cũ + 3 mới cho fetch_model_info)
+- `node --check static/app.js` → OK
+- Khởi động `python3 server.py` + mock Ollama:
+  `/api/models` trả list; `/api/chat` stream `{"t":"content"}` ×4 + `{"t":"stats"}`;
+  `/api/model-info` trả capabilities; body lỗi → 400, chunked → 411, body lớn → 413.
+- Không có test/lint config khác trong repo (không package.json, không ruff/flake8).
 
 ## Review Log
 
 ### Vòng 1
 - Self-review: `py_compile` pass; 8/8 test case `validate_ollama_url` pass (loopback/local LAN cho phép, metadata/link-local/IPv6 hỏng bị chặn). Phát hiện và sửa 2 lỗi trong chính bản fix: (1) `::1` có `is_reserved=True` trên Python 3.13+ → kiểm tra loopback trước; (2) `urlparse` ném ValueError với IPv6 hỏng → wrap try/except. Client parser đọc frame `t==='error'` mới, bỏ hoàn toàn substring matching.
+
+### Vòng 2
+- Note: session trước bị interrupt để lại WIP chưa commit (handler/ollama/index.html) — đã review, hoàn thiện (app.js + style.css viết lại toàn bộ để khớp layout mới), commit trong Round 2.
+- Self-review sau commit: sửa X2 (race switch-conv giữa stream), X3 (dataUrl vs b64 trong payload), dataset.raw cho abort partial. E2e với mock Ollama OK.
