@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ollama Chat</title>
 <link rel="stylesheet" href="/static/style.css">
+<!-- Vendored highlight.js themes: one enabled per theme, toggled in applyTheme(). -->
+<link rel="stylesheet" href="/static/vendor/hljs-github-dark.min.css" id="hljsDark">
+<link rel="stylesheet" href="/static/vendor/hljs-github.min.css" id="hljsLight" disabled>
 </head>
 <body>
 <aside id="sidebar" aria-label="Conversations">
@@ -83,9 +86,11 @@
     <button id="stopbtn">Stop</button>
   </div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<!-- Vendored locally (static/vendor/) — see README "Updating vendored libraries".
+     No third-party origins, so CSP stays script-src/style-src 'self'. -->
+<script src="/static/vendor/marked.min.js"></script>
+<script src="/static/vendor/purify.min.js"></script>
+<script src="/static/vendor/highlight.min.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

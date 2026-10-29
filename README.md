@@ -40,6 +40,11 @@ Mở trình duyệt: http://localhost:8080
 
 > **Ghi chú cost estimator:** Ollama local miễn phí. Số tiền hiển thị là placeholder theo mức giá API điển hình ($0.10/1M input, $0.40/1M output) — để tham khảo, có thể chỉnh hằng số `COST_INPUT_PER_1M` / `COST_OUTPUT_PER_1M` trong `static/app.js`.
 
+### Mới trong Round 3
+- 📦 **Vendor libs cục bộ** — marked/DOMPurify/highlight.js + themes tải về `static/vendor/` (pin version), không còn script từ CDN; CSP siết còn `script-src 'self'`
+- 📊 **Thống kê dùng bền vững** — tổng msgs + tokens (in/out) lưu localStorage, sống qua reload; double-click vào label stats trên topbar để reset
+- 🐛 Fix: biến `sessionStats` chưa khai báo → ReferenceError sau mỗi response có stats
+
 ## Cấu trúc
 ```
 ollama-chat/
@@ -52,8 +57,51 @@ ollama-chat/
 └── static/
     ├── index.html         # Giao diện web
     ├── app.js             # Logic frontend
-    └── style.css          # Style
+    ├── style.css          # Style
+    └── vendor/            # Thư viện JS/CSS bên thứ 3 (vendor cục bộ, pin version)
+        ├── marked.min.js            # marked 12.0.2 (markdown parser)
+        ├── purify.min.js            # DOMPurify 3.0.9 (sanitize HTML)
+        ├── highlight.min.js         # highlight.js 11.9.0 (syntax highlight)
+        ├── hljs-github-dark.min.css # hljs theme cho dark mode
+        └── hljs-github.min.css      # hljs theme cho light mode
 ```
+
+## Thư viện vendor (static/vendor/)
+
+Toàn bộ JS/CSS bên thứ ba được **serve cục bộ** từ `static/vendor/` — không tải
+từ CDN nào. Nhờ đó CSP chỉ cần `script-src 'self'; style-src 'self'`, một origin
+bên ngoài bị compromise không thể chạy script trên trang.
+
+### Cập nhật thư viện vendor
+
+Khi cần nâng cấp (ví dụ vá bảo mật):
+
+1. Tải đúng file từ CDN và **ghi đè** file tương ứng trong `static/vendor/`,
+   giữ nguyên tên file (hoặc đổi tên + sửa `static/index.html`):
+
+   ```bash
+   curl -fsSL -o static/vendor/marked.min.js \
+     "https://cdn.jsdelivr.net/npm/marked@<version>/marked.min.js"
+   curl -fsSL -o static/vendor/purify.min.js \
+     "https://cdn.jsdelivr.net/npm/dompurify@<version>/dist/purify.min.js"
+   curl -fsSL -o static/vendor/highlight.min.js \
+     "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/<version>/highlight.min.js"
+   # themes (github + github-dark), cùng version với highlight.min.js
+   curl -fsSL -o static/vendor/hljs-github.min.css \
+     "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/<version>/styles/github.min.css"
+   curl -fsSL -o static/vendor/hljs-github-dark.min.css \
+     "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/<version>/styles/github-dark.min.css"
+   ```
+
+2. Kiểm tra file tải về parse được: `node --check static/vendor/*.js`
+3. `marked` v5+ đã bỏ option `highlight` — app highlight bằng
+   `hljs.highlightElement` sau khi parse (xem `postProcessContent` trong `app.js`);
+   nếu nâng hljs major, kiểm tra lại API này.
+4. Mở app, kiểm tra markdown + code highlight vẫn render (thử một block ```python).
+
+> Lưu ý: nếu thư viện mới cần thêm loại tài nguyên (font, worker...), phải cập nhật
+> CSP trong `server_lib/handler.py` (`_security_headers`) một cách tối thiểu —
+> đừng mở lại origin CDN.
 
 ## Cấu hình mặc định (trong `server_lib/config.py`)
 

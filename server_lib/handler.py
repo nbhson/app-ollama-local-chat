@@ -40,15 +40,16 @@ class ChatHandler(BaseHTTPRequestHandler):
 
     def _security_headers(self):
         # Hardening: tránh MIME-sniffing, clickjacking, leak referrer.
-        # CSP: chỉ cho phép script/style từ self + 2 CDN dùng cho markdown/
-        # highlight; img cho phép data: (preview ảnh attach) và blob: (audio).
+        # CSP: script/style chỉ 'self' — toàn bộ JS/CSS (marked, DOMPurify,
+        # highlight.js) đã được vendor vào static/vendor/. img cho phép data:
+        # (preview ảnh attach) và blob: (audio); không có origin ngoài.
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; "
-                         "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
-                         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+                         "script-src 'self'; "
+                         "style-src 'self' 'unsafe-inline'; "
                          "img-src 'self' data: blob:; "
                          "media-src 'self' blob:; "
                          "connect-src 'self'; "

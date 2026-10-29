@@ -401,6 +401,14 @@
     document.documentElement.setAttribute('data-theme', theme);
     themeToggle.textContent = theme === 'light' ? '🌙' : '☀️';
     themeToggle.title = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    // Vendored highlight.js themes: exactly one stylesheet active at a time
+    // so code blocks follow the light/dark toggle.
+    const hljsDark = document.getElementById('hljsDark');
+    const hljsLight = document.getElementById('hljsLight');
+    if (hljsDark && hljsLight) {
+      hljsDark.disabled = theme === 'light';
+      hljsLight.disabled = theme !== 'light';
+    }
     localStorage.setItem(LS.theme, theme);
   }
 
