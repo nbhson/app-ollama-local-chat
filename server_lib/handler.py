@@ -3,6 +3,7 @@
 import json
 import mimetypes
 import os
+import socket
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -16,6 +17,10 @@ MAX_BODY_BYTES = 25 * 1024 * 1024
 
 class BodyTooLarge(ValueError):
     """Sentinel riêng: phân biệt body vượt giới hạn (413) với JSON hỏng (400)."""
+
+
+class ChunkedBodyNotSupported(Exception):
+    """Transfer-Encoding: chunked không decode được trên stdlib handler (411)."""
 
 
 class ChatHandler(BaseHTTPRequestHandler):
@@ -35,11 +40,21 @@ class ChatHandler(BaseHTTPRequestHandler):
 
     def _security_headers(self):
         # Hardening: tránh MIME-sniffing, clickjacking, leak referrer.
+        # CSP: chỉ cho phép script/style từ self + 2 CDN dùng cho markdown/
+        # highlight; img cho phép data: (preview ảnh attach) và blob: (audio).
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; "
+                         "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+                         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+                         "img-src 'self' data: blob:; "
+                         "media-src 'self' blob:; "
+                         "connect-src 'self'; "
+                         "frame-ancestors 'none'")
 
-    def _send_json(self, status, obj):
+    def _send_json(self, status, obj, include_body=True):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -47,16 +62,18 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self._security_headers()
         self.end_headers()
-        self.wfile.write(body)
+        if include_body:
+            self.wfile.write(body)
 
-    def _send_error(self, status, msg):
-        self._send_json(status, {"error": msg})
+    def _send_error(self, status, msg, include_body=True):
+        self._send_json(status, {"error": msg}, include_body=include_body)
 
     def _read_body(self):
         if (self.headers.get("Transfer-Encoding", "") or "").strip().lower() == "chunked":
             # stdlib handler không decode chunked — nếu đọc theo Content-Length
             # (thiếu) thì body sót lại làm hỏng request kế trên keep-alive.
-            raise BodyTooLarge("chunked body not supported")
+            # 411 Length Required đúng ngữ nghĩa hơn 413 ở đây.
+            raise ChunkedBodyNotSupported()
         try:
             length = int(self.headers.get("Content-Length", 0))
         except ValueError:
@@ -67,19 +84,19 @@ class ChatHandler(BaseHTTPRequestHandler):
             raise BodyTooLarge("body too large")
         return self.rfile.read(length)
 
-    def _serve_static(self, filename):
+    def _serve_static(self, filename, include_body=True):
         safe = os.path.normpath(filename)
         if safe.startswith("..") or os.path.isabs(safe):
-            self._send_error(403, "Forbidden")
+            self._send_error(403, "Forbidden", include_body=include_body)
             return
         filepath = os.path.join(STATIC_DIR, safe)
         # Chốt bằng realpath: symlink/escape trick (vd "sub/../../etc/passwd")
         # qua được normpath nhưng không được rời khỏi STATIC_DIR.
         if not os.path.realpath(filepath).startswith(os.path.realpath(STATIC_DIR) + os.sep):
-            self._send_error(403, "Forbidden")
+            self._send_error(403, "Forbidden", include_body=include_body)
             return
         if not os.path.isfile(filepath):
-            self._send_error(404, "Not found")
+            self._send_error(404, "Not found", include_body=include_body)
             return
         ctype, _ = mimetypes.guess_type(filepath)
         with open(filepath, "rb") as f:
@@ -90,7 +107,8 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self._security_headers()
         self.end_headers()
-        self.wfile.write(body)
+        if include_body:
+            self.wfile.write(body)
 
     # --- Handlers ---
 
@@ -98,22 +116,22 @@ class ChatHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path in ("/", "/index.html"):
-            self._serve_static("index.html")
+            self._serve_static("index.html", include_body=include_body)
         elif path == "/api/models":
             query = parse_qs(parsed.query)
             url, err = validate_ollama_url(query.get("url", [DEFAULT_OLLAMA_URL])[0])
             if err:
-                self._send_json(400, {"error": err})
+                self._send_json(400, {"error": err}, include_body=include_body)
                 return
             models, fetch_err = fetch_models(url)
             resp = {"models": models, "default": DEFAULT_MODEL}
             if fetch_err:
                 resp["error"] = fetch_err
-            self._send_json(200, resp)
+            self._send_json(200, resp, include_body=include_body)
         elif path.startswith("/static/"):
-            self._serve_static(path[len("/static/"):])
+            self._serve_static(path[len("/static/"):], include_body=include_body)
         else:
-            self._send_error(404, "Not found")
+            self._send_error(404, "Not found", include_body=include_body)
 
     def do_GET(self):
         self._handle_get(include_body=True)
@@ -147,11 +165,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         return None
 
     def _handle_chat(self):
-        try:
-            body = self._read_json()
-        except BodyTooLarge:
-            self._send_error(413, "Request body too large")
-            return
+        body = self._read_json_or_respond()
         if body is None:
             return
         if not isinstance(body, dict):
@@ -192,17 +206,23 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Accel-Buffering", "no")
+        self._security_headers()
         self.end_headers()
 
         def on_chunk(text):
             # Client ngắt kết nối → raise để stream_chat ngừng đọc upstream
             # luôn thay vì tiếp tục pull hết token từ Ollama vô ích.
-            self.wfile.write(text.encode("utf-8"))
-            self.wfile.flush()
+            # socket.timeout: client nhận quá chậm / half-open connection —
+            # cũng phải coi là ngắt, nếu không thread treo đến 600s.
+            try:
+                self.wfile.write(text.encode("utf-8"))
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, TimeoutError, socket.timeout) as e:
+                raise ConnectionError("client disconnected") from e
 
         try:
             status, error = stream_chat(ollama_url, payload, on_chunk)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:
             return  # client đã ngắt — không còn gì để gửi
         if error:
             # Lỗi được gửi như một NDJSON frame có cấu trúc — client parse được
@@ -217,11 +237,7 @@ class ChatHandler(BaseHTTPRequestHandler):
     # --- API: /api/model-info ---
 
     def _handle_model_info(self):
-        try:
-            body = self._read_json()
-        except BodyTooLarge:
-            self._send_error(413, "Request body too large")
-            return
+        body = self._read_json_or_respond()
         if body is None:
             return
         if not isinstance(body, dict):
@@ -232,22 +248,34 @@ class ChatHandler(BaseHTTPRequestHandler):
             self._send_error(400, err)
             return
         model = body.get("model", "")
-        if not model:
+        if not isinstance(model, str) or not model.strip():
             self._send_error(400, "No model provided")
             return
-        info = fetch_model_info(ollama_url, model)
-        if info is None:
-            self._send_error(404, "Model info not found")
+        # fetch_model_info trả về (info, error, upstream_status): phân biệt
+        # "không kết nối được" (502) với "model không tồn tại" (404).
+        info, fetch_err, upstream_status = fetch_model_info(ollama_url, model)
+        if fetch_err:
+            self._send_error(404 if upstream_status == 404 else 502, fetch_err)
             return
         self._send_json(200, info)
 
     # --- Utility ---
 
+    def _read_json_or_respond(self):
+        """Đọc JSON body; tự trả 411/413/400 khi lỗi. Trả None nếu đã respond."""
+        try:
+            return self._read_json()
+        except BodyTooLarge:
+            self._send_error(413, "Request body too large")
+        except ChunkedBodyNotSupported:
+            self._send_error(411, "Chunked request bodies are not supported")
+        return None
+
     def _read_json(self):
         try:
             return json.loads(self._read_body().decode("utf-8"))
-        except BodyTooLarge:
-            # Re-raise để caller trả 413 thay vì 400 chung chung
+        except (BodyTooLarge, ChunkedBodyNotSupported):
+            # Re-raise để caller (_read_json_or_respond) map đúng status
             raise
         except (ValueError, UnicodeDecodeError):
             self._send_error(400, "Invalid JSON body")

@@ -58,12 +58,19 @@ def fetch_models(ollama_url):
 
 
 def fetch_model_info(ollama_url, model):
+    """Return (info, error, upstream_status).
+
+    upstream_status: HTTP status từ Ollama, hoặc 0 khi không kết nối được —
+    caller dùng để phân biệt 404 (model không tồn tại) với 502 (upstream hỏng).
+    """
     status, body = _request(ollama_url, "/api/show", {"model": model}, timeout=LIST_TIMEOUT)
+    if status == 0:
+        return None, "Cannot connect to Ollama: " + body.decode("utf-8", "replace"), 0
     if status != 200:
-        return None
+        return None, "Ollama returned HTTP %d for model '%s'" % (status, model), status
     data = _decode_json(body)
     if not data:
-        return None
+        return None, "Invalid response from Ollama", status
     caps = data.get("capabilities", []) or []
     details = data.get("details", {}) or {}
     family = (details.get("family") or "").lower()
@@ -78,7 +85,7 @@ def fetch_model_info(ollama_url, model):
         "family": details.get("family", ""),
         "capabilities": caps,
         "supports": supports,
-    }
+    }, None, status
 
 
 def _extract_error(err):
@@ -148,8 +155,10 @@ def stream_chat(ollama_url, payload, on_chunk):
                         on_chunk(json.dumps(stats) + "\n")
                         return 200, None
             return 200, None
-    except (BrokenPipeError, ConnectionResetError):
+    except ConnectionError:
         # Client ngắt kết nối — raise lên để caller ngừng luôn, không gửi error frame.
+        # (gồm BrokenPipeError/ConnectionResetError và ConnectionError do
+        # on_chunk raise khi ghi xuống client fail.)
         raise
     except urllib.error.HTTPError as e:
         return e.code, _extract_error(e)

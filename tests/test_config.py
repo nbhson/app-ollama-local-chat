@@ -107,6 +107,29 @@ class TestFetchModels(unittest.TestCase):
         self.assertIn("500", err)
 
 
+class TestFetchModelInfo(unittest.TestCase):
+    def test_success(self):
+        body = (b'{"capabilities":["vision"],'
+                b'"details":{"family":"Qwen2.5"}}')
+        with mock.patch.object(ollama, "_request", return_value=(200, body)):
+            info, err, status = ollama.fetch_model_info("http://localhost:11434", "q")
+        self.assertIsNone(err)
+        self.assertEqual(status, 200)
+        self.assertTrue(info["supports"]["vision"])
+
+    def test_connection_failure_maps_to_502(self):
+        with mock.patch.object(ollama, "_request", return_value=(0, b"refused")):
+            _, err, status = ollama.fetch_model_info("http://localhost:11434", "q")
+        self.assertIsNotNone(err)
+        self.assertEqual(status, 0)
+
+    def test_unknown_model_maps_to_404(self):
+        with mock.patch.object(ollama, "_request", return_value=(404, b"not found")):
+            _, err, status = ollama.fetch_model_info("http://localhost:11434", "nope")
+        self.assertIsNotNone(err)
+        self.assertEqual(status, 404)
+
+
 class TestStreamChat(unittest.TestCase):
     def test_client_disconnect_propagates(self):
         # on_chunk raise ConnectionResetError → phải propagate (không nuốt).
