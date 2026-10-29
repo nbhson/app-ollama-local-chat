@@ -43,7 +43,8 @@
     currentId: 'oc:currentId',
     theme: 'oc:theme',
     md: 'oc:mdRendering',
-    settings: 'oc:settings'
+    settings: 'oc:settings',
+    stats: 'oc:stats'
   };
 
   // Rough cost estimator. Local Ollama is free; these placeholder rates model
@@ -69,6 +70,11 @@
   let modelCaps = { vision: false, tools: false, thinking: false, audio: false };
   let mdRendering = false;
 
+  // Cumulative usage stats. Persisted in localStorage so they survive reload
+  // (round-3 fix: this was referenced but never declared — ReferenceError on
+  // every completed response). Double-click the header label to reset.
+  let sessionStats = { promptTokens: 0, outputTokens: 0, messages: 0 };
+
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
@@ -90,9 +96,33 @@
     const cost = fmtCost(sessionStats.promptTokens, COST_INPUT_PER_1M) +
                  ' + ' + fmtCost(sessionStats.outputTokens, COST_OUTPUT_PER_1M);
     sessionStatsEl.textContent =
-      'session: ' + fmtNum(total) + ' tokens (' +
+      fmtNum(sessionStats.messages) + ' msgs · ' +
+      fmtNum(total) + ' tokens (' +
       fmtNum(sessionStats.promptTokens) + ' in / ' +
       fmtNum(sessionStats.outputTokens) + ' out) · est ' + cost;
+  }
+
+  function loadSessionStats() {
+    try {
+      const s = JSON.parse(localStorage.getItem(LS.stats) || 'null');
+      if (s && typeof s === 'object') {
+        sessionStats.promptTokens = Number(s.promptTokens) || 0;
+        sessionStats.outputTokens = Number(s.outputTokens) || 0;
+        sessionStats.messages = Number(s.messages) || 0;
+      }
+    } catch (e) { /* corrupted value — start from zero */ }
+  }
+
+  function persistSessionStats() {
+    try {
+      localStorage.setItem(LS.stats, JSON.stringify(sessionStats));
+    } catch (e) { /* quota/privacy mode — stats stay in memory only */ }
+  }
+
+  function resetSessionStats() {
+    sessionStats = { promptTokens: 0, outputTokens: 0, messages: 0 };
+    persistSessionStats();
+    updateSessionStats();
   }
 
   // Single source of truth for the per-response meta line (F5).
@@ -694,8 +724,10 @@
           renderMeta(metaDiv, stats);
           sessionStats.promptTokens += stats.prompt_tokens || 0;
           sessionStats.outputTokens += stats.output_tokens || 0;
-          updateSessionStats();
         }
+        sessionStats.messages += 1;
+        persistSessionStats();
+        updateSessionStats();
       } else {
         hadError = true;
         contentDiv.textContent = '(empty response from model)';
@@ -1060,6 +1092,11 @@
   });
 
   // ── Init ───────────────────────────────────────────────────────────────
+  // Usage stats: persist across reloads; double-click to reset.
+  sessionStatsEl.title = 'Usage since last reset (double-click to reset)';
+  sessionStatsEl.addEventListener('dblclick', resetSessionStats);
+  loadSessionStats();
+  updateSessionStats();
   applyTheme(localStorage.getItem(LS.theme) || 'dark');
   mdRendering = localStorage.getItem(LS.md) === '1';
   mdToggleBtn.classList.toggle('active', mdRendering);
