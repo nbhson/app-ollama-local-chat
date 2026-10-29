@@ -96,6 +96,76 @@ Phát hiện thêm trong quá trình implement (đợt 2):
   `/api/model-info` trả capabilities; body lỗi → 400, chunked → 411, body lớn → 413.
 - Không có test/lint config khác trong repo (không package.json, không ruff/flake8).
 
+## Round 3 (2026-10-29)
+
+### Scope (Round-2 remaining risks)
+
+1. Vendor CDN libs → local, tighten CSP
+2. Session stats persistence (localStorage)
+3. Fix bugs found
+
+### Kết quả
+
+**B0 (bug mới phát hiện) | MAJOR | app.js** — `sessionStats` được dùng ở
+`updateSessionStats` + luồng chat nhưng **không hề khai báo** (`let/const` nào
+cả). Mỗi response hoàn thành có stats → `ReferenceError: sessionStats is not
+defined` trong khối try → bắt ở catch → hiển thị lỗi giả "sessionStats is not
+defined" dưới bubble thay vì meta stats. Round 2 chưa từng chạy được tính năng
+token tổng. Fix: gộp vào mục stats persistence bên dưới (khai báo + init).
+
+**V1 — Vendor libs cục bộ + CSP siết:**
+
+- Tải pin version vào `static/vendor/` (repo dùng `static/`, không `public/`):
+  `marked.min.js` 12.0.2, `purify.min.js` 3.0.9, `highlight.min.js` 11.9.0,
+  `hljs-github-dark.min.css` + `hljs-github.min.css` 11.9.0.
+  Trước đây marked dùng đường dẫn *unpinned* (`marked/marked.min.js` — floating
+  latest), giờ pin đúng version.
+- `index.html`: 2 hljs theme `<link id="hljsDark"|"hljsLight">`, toggle
+  `disabled` trong `applyTheme` để code highlight theo light/dark.
+- `handler.py` CSP: bỏ hẳn 2 origin CDN → `script-src 'self'; style-src 'self'
+  'unsafe-inline'`; giữ `img-src data: blob:` cho preview. Không origin ngoài.
+
+**V2 — Session stats persistence:**
+
+- Khai báo `sessionStats = {promptTokens, outputTokens, messages}`; lưu
+  localStorage key `oc:stats` (`loadSessionStats`/`persistSessionStats`);
+  load + render ngay khi init → sống qua reload.
+- Header hiển thị `N msgs · total tokens (in / out) · est $...`; double-click
+  vào label để reset (persist luôn giá trị 0).
+- Đếm mỗi exchange hoàn thành (kể cả response không có stats frame); abort
+  giữa chừng không đếm (chưa hoàn thành).
+
+### Verify (Round 3)
+
+- `python3 -m unittest discover -s tests` → 22/22 OK
+- `node --check` trên `static/app.js` + cả 3 vendor .js → OK
+- Server smoke test (Ollama KHÔNG chạy):
+  - `GET /` → 200; CSP = `default-src 'self'; script-src 'self'; style-src
+    'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:;
+    connect-src 'self'; frame-ancestors 'none'` — không còn origin CDN
+  - 7 asset (`app.js`, `style.css`, 3 vendor js, 2 hljs css) → tất cả 200
+  - `index.html` chỉ tham chiếu `/static/...`, không có URL ngoài
+  - `/api/models` → 200 + `error` field (graceful); `/api/chat` → NDJSON
+    `{"t":"error"}`; bad JSON 400, chunked 411, body 26MB 413, traversal 403
+- DOM-level check (jsdom, chạy ngoài repo): marked parse → h1 + `language-python`
+  class; DOMPurify strip `<script>` + `onerror`; hljs `highlightElement` highlight
+  được block python → ALL PASS
+- Lưu ý: `hljs.version` không tồn tại trên build UMD 11.9.0 nhưng
+  `hljs.highlight`/`highlightElement` hoạt động đúng (API app dùng)
+
+### Round 4 — còn lại (rủi ro tồn đọng)
+
+1. **Không có e2e tự động cho frontend** — render markdown/stats chỉ verify
+   thủ công + jsdom ad-hoc; có thể thêm harness jsdom/nhựa test cho `app.js`.
+2. **Stats per-conversation** — hiện chỉ có global cumulative; tách theo
+   conversation (reset khi tạo chat mới?) nếu cần.
+3. **marked 12.0.2 → kiểm tra nâng cấp lớn tiếp theo** (API `marked.parse`
+   ổn định nhưng cần re-verify khi lên major mới).
+4. **Config server-side cho vendor path/versions** — version nằm trong tên file
+   + README; nếu thêm lib, nhớ cập nhật cả CSP review.
+5. **HTTP/1.0 server** — không keep-alive/compression; OK cho local, cân nhắc
+   nếu dùng qua network.
+
 ## Review Log
 
 ### Vòng 1
