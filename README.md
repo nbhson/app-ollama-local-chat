@@ -1,5 +1,7 @@
 # Ollama Chat Web
 
+[![CI](https://github.com/nbhson/app-ollama-local-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/nbhson/app-ollama-local-chat/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Ứng dụng chat web local kết nối tới Ollama, hiển thị streaming nhanh như terminal.
 
 ## Yêu cầu
